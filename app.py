@@ -128,19 +128,56 @@ else:
             st.error(f"Not enough valid positive close prices. Need at least {max(3, int(slow_window))} rows for the selected slow moving average; found {len(df)}.")
             st.stop()
 
+        removed_rows = original_rows - len(df)
+        if removed_rows:
+            st.warning(f"Data quality: removed {removed_rows} row(s) with missing, non-numeric, or non-positive close prices.")
+
+        # When OHLC columns are supplied, reject contradictory candles rather
+        # than quietly calculating indicators from malformed market data.
+        if all(col in df.columns for col in ["open", "high", "low", "close"]):
+            ohlc = df[["open", "high", "low", "close"]]
+            invalid_ohlc = (
+                ohlc.isna().any(axis=1)
+                | (df["high"] < df[["open", "close", "low"]].max(axis=1))
+                | (df["low"] > df[["open", "close", "high"]].min(axis=1))
+                | (df["high"] < df["low"])
+                | (df[["open", "high", "low"]] <= 0).any(axis=1)
+            )
+            if invalid_ohlc.any():
+                st.error(
+                    f"CSV contains {int(invalid_ohlc.sum())} invalid OHLC row(s). "
+                    "Check that prices are positive, High is at least Open/Close/Low, "
+                    "and Low is at most Open/Close/High."
+                )
+                st.stop()
+
         date_col = next((c for c in ["datetime", "timestamp", "date", "time"] if c in df.columns), None)
         if date_col:
             parsed_dates = pd.to_datetime(df[date_col], errors="coerce", utc=True)
-            if parsed_dates.notna().sum() > 0:
-                df["_date"] = parsed_dates
-                df = df.sort_values("_date").reset_index(drop=True)
-                chart_index = "_date"
-            else:
-                chart_index = None
-                st.warning(f"Could not parse '{date_col}' as dates; using CSV row order.")
+            invalid_dates = parsed_dates.isna()
+            if invalid_dates.any():
+                st.error(
+                    f"CSV contains {int(invalid_dates.sum())} unparseable or missing value(s) "
+                    f"in the '{date_col}' column. Correct the timestamps before analysis."
+                )
+                st.stop()
+            if parsed_dates.duplicated().any():
+                duplicate_count = int(parsed_dates.duplicated(keep=False).sum())
+                st.error(
+                    f"CSV contains {duplicate_count} rows with duplicate timestamps in '{date_col}'. "
+                    "Resolve duplicate times so returns and backtest periods are unambiguous."
+                )
+                st.stop()
+            df["_date"] = parsed_dates
+            df = df.sort_values("_date").reset_index(drop=True)
+            chart_index = "_date"
         else:
             chart_index = None
-            st.caption("No date/time column found; analysis follows the CSV row order.")
+            st.warning("No date/time column found; analysis follows CSV row order. Ensure rows are chronological.")
+
+        if len(df) < max(3, int(slow_window)):
+            st.error(f"Not enough valid positive close prices. Need at least {max(3, int(slow_window))} rows for the selected slow moving average; found {len(df)}.")
+            st.stop()
 
         df["fast_ma"] = df["close"].rolling(int(fast_window)).mean()
         df["slow_ma"] = df["close"].rolling(int(slow_window)).mean()

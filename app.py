@@ -263,6 +263,20 @@ else:
         st.caption("Research only: long when fast SMA is above slow SMA; otherwise cash. Positions are delayed by one row to reduce look-ahead bias. Costs are charged on entries and exits.")
         from backtest import run_moving_average_backtest
 
+        minimum_backtest_rows = max(30, int(slow_window) * 3)
+        if len(df) < minimum_backtest_rows:
+            st.warning(
+                f"Limited historical sample: {len(df)} rows available; "
+                f"at least {minimum_backtest_rows} are recommended for this configuration. "
+                "Results may be unstable and should not be treated as reliable evidence."
+            )
+        else:
+            st.caption(
+                f"Sample-size check: {len(df):,} rows available; "
+                f"minimum screening threshold is {minimum_backtest_rows:,}. "
+                "Passing this threshold does not establish statistical significance."
+            )
+
         results = run_moving_average_backtest(
             df["close"], df["fast_ma"], df["slow_ma"], float(cost_bps)
         )

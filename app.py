@@ -273,22 +273,41 @@ else:
         backtest_drawdown = results["drawdown"]
         completed_exits = results["completed_trades"]
         trade_returns = results["trade_returns"]
+        positions = results["position"]
+        open_long_at_end = bool(len(positions) and int(positions.iloc[-1]) == 1)
+        eligible_periods = int(results["benchmark_period_returns"].ne(0).sum())
+        # Count eligibility from the strategy position timeline, including
+        # eligible flat/cash periods; this is more informative than counting
+        # non-zero benchmark returns, since a valid market return can be zero.
+        valid_ma = df["fast_ma"].notna() & df["slow_ma"].notna()
+        eligible_periods = int(valid_ma.shift(1, fill_value=False).sum())
 
-        metrics = st.columns(4)
-        metrics[0].metric("Strategy total return", f"{strategy_total * 100:.2f}%")
-        metrics[1].metric("Buy-and-hold return", f"{benchmark_total * 100:.2f}%")
-        metrics[2].metric("Strategy max drawdown", f"{backtest_drawdown.min() * 100:.2f}%")
-        metrics[3].metric("Completed long trades", str(completed_exits))
+        st.caption(
+            f"Evaluation window: {eligible_periods:,} eligible return period(s) after moving-average warm-up. "
+            "Strategy and buy-and-hold benchmark use the same eligible window."
+        )
+        metrics = st.columns(2)
+        metrics[0].metric("Strategy total return (after assumed costs)", f"{strategy_total * 100:.2f}%")
+        metrics[1].metric("Buy-and-hold return (same window)", f"{benchmark_total * 100:.2f}%")
+        metrics = st.columns(3)
+        metrics[0].metric("Strategy max drawdown", f"{backtest_drawdown.min() * 100:.2f}%")
+        metrics[1].metric("Completed long trades", str(completed_exits))
+        metrics[2].metric("Position at end of sample", "OPEN LONG" if open_long_at_end else "CASH")
         if trade_returns:
             win_rate = 100 * sum(value > 0 for value in trade_returns) / len(trade_returns)
             st.write(f"Completed-trade win rate, after assumed costs: **{win_rate:.1f}%**.")
         else:
             st.write("Completed-trade win rate is unavailable because no long-position trade has completed in this sample.")
+        if open_long_at_end:
+            st.info(
+                "A long position remains open at the end of this sample. Its mark-to-market return is included "
+                "in the strategy equity curve, but it is excluded from completed-trade count and completed-trade win rate."
+            )
         equity_plot = pd.DataFrame({"Strategy equity (start = 1.0)": equity_curve, "Buy-and-hold equity (start = 1.0)": benchmark_curve})
         if chart_index:
             equity_plot.index = df[chart_index]
         st.line_chart(equity_plot.tail(500))
-        st.caption(f"Assumed one-way cost: {float(cost_bps):.1f} basis points per entry or exit. Excludes variable slippage, financing, leverage and execution constraints. Historical results are not predictions or evidence of future profitability.")
+        st.caption(f"Assumed one-way cost: {float(cost_bps):.1f} basis points per entry or exit. Excludes variable slippage, financing, leverage and execution constraints. Results are compounded returns on a normalized 1.0 starting equity, not account-dollar projections. Historical results are not predictions or evidence of future profitability.")
 
         st.markdown("#### Recent observations")
         display_cols = ([date_col] if date_col else []) + ["close", "fast_ma", "slow_ma", "period_return_pct", "drawdown_pct"]

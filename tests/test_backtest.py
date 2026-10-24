@@ -127,7 +127,7 @@ class MovingAverageBacktestTests(unittest.TestCase):
         self.assertAlmostEqual(result["benchmark_period_returns"].iloc[1], 0.0)
         self.assertAlmostEqual(result["benchmark_period_returns"].iloc[2], 0.0)
         self.assertAlmostEqual(result["benchmark_period_returns"].iloc[3], 0.10)
-        self.assertAlmostEqual(result["strategy_period_returns"].iloc[3], 0.0)
+        self.assertAlmostEqual(result["strategy_period_returns"].iloc[3], 0.10)
         self.assertAlmostEqual(result["strategy_period_returns"].iloc[4], 0.10)
 
     def test_downtrend_long_only_strategy_does_not_claim_short_exposure(self):

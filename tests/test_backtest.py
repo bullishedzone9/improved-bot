@@ -42,15 +42,18 @@ class MovingAverageBacktestTests(unittest.TestCase):
         self.assertAlmostEqual(result["strategy_period_returns"].iloc[3], 0.0)
 
     def test_entry_and_exit_costs_are_each_charged_once(self):
-        close = pd.Series([100.0, 110.0, 121.0, 110.0])
-        fast = pd.Series([2.0] * 4)
-        slow = pd.Series([1.0] * 4)
+        close = pd.Series([100.0, 110.0, 121.0, 110.0, 100.0])
+        fast = pd.Series([2.0, 2.0, 2.0, 0.0, 0.0])
+        slow = pd.Series([1.0] * 5)
         result = run_moving_average_backtest(close, fast, slow, 10)
+        self.assertEqual(result["position"].tolist(), [0, 1, 1, 1, 0])
         self.assertAlmostEqual(result["strategy_period_returns"].iloc[1], 0.10 - 0.001)
         self.assertAlmostEqual(result["strategy_period_returns"].iloc[2], 0.10)
-        self.assertAlmostEqual(result["strategy_period_returns"].iloc[3], -0.001)
+        self.assertAlmostEqual(result["strategy_period_returns"].iloc[3], 110.0 / 121.0 - 1.0)
+        self.assertAlmostEqual(result["strategy_period_returns"].iloc[4], -0.001)
         self.assertEqual(result["completed_trades"], 1)
-        self.assertAlmostEqual(result["trade_returns"][0], (1.099 * 1.1 * 0.999) - 1.0)
+        expected_trade_return = (1.099 * 1.1 * (110.0 / 121.0) * 0.999) - 1.0
+        self.assertAlmostEqual(result["trade_returns"][0], expected_trade_return)
 
     def test_open_trade_at_end_is_not_counted_as_completed(self):
         close = pd.Series([100.0, 110.0, 120.0])

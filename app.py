@@ -44,6 +44,12 @@ c1.metric("Demo balance", f"${equity:,.2f}")
 c2.metric("Illustrative risk budget", f"${risk_budget:,.2f}")
 c3.metric("Risk setting", f"{risk_pct:.2f}%")
 st.caption("Risk budget is an arithmetic estimate only. It does not calculate position size, leverage, spread, fees, slippage, or stop-loss execution.")
+    st.markdown("#### Backtest assumptions")
+    cost_bps = st.number_input(
+        "Estimated cost per position change (basis points)",
+        min_value=0.0, max_value=100.0, value=2.0, step=0.5,
+        help="Illustrative one-way cost charged when entering or exiting a position. One basis point is 0.01%; this is not a live broker quote.",
+    )
 
 st.markdown("### Historical price analysis")
 st.write("Upload a CSV containing a **close** column. Optional columns: **date/time**, **open**, **high**, **low**, and **volume**. Rows should be in chronological order.")
@@ -145,6 +151,48 @@ else:
         st.line_chart(plot_df[["close", "fast_ma", "slow_ma"]].rename(columns={
             "close": "Close", "fast_ma": f"SMA {int(fast_window)}", "slow_ma": f"SMA {int(slow_window)}"
         }))
+        st.markdown("#### Historical strategy backtest")
+        st.caption("Research only: long when fast SMA is above slow SMA; otherwise cash. Positions are delayed by one row to reduce look-ahead bias. Costs are charged on entries and exits.")
+        valid_signal = df["fast_ma"].notna() & df["slow_ma"].notna()
+        signal = (df["fast_ma"] > df["slow_ma"]).where(valid_signal, False).astype(int)
+        position = signal.shift(1).fillna(0).astype(int)
+        market_return = df["close"].pct_change().fillna(0.0)
+        position_change = position.diff().abs().fillna(position.abs())
+        strategy_return = (position * market_return - position_change * (float(cost_bps) / 10000.0)).where(valid_signal, 0.0)
+        equity_curve = (1.0 + strategy_return).cumprod()
+        benchmark_curve = (1.0 + market_return.where(valid_signal, 0.0)).cumprod()
+        backtest_drawdown = equity_curve / equity_curve.cummax() - 1.0
+        completed_exits = int(((position.shift(1).fillna(0) == 1) & (position == 0) & valid_signal).sum())
+        trade_returns = []
+        entry_index = None
+        for idx in range(len(df)):
+            if not bool(valid_signal.iloc[idx]):
+                continue
+            current_position = int(position.iloc[idx])
+            previous_position = int(position.iloc[idx - 1]) if idx > 0 else 0
+            if current_position == 1 and previous_position == 0:
+                entry_index = idx
+            elif current_position == 0 and previous_position == 1 and entry_index is not None:
+                trade_returns.append(float((1.0 + strategy_return.iloc[entry_index:idx + 1]).prod() - 1.0))
+                entry_index = None
+        strategy_total = float(equity_curve.iloc[-1] - 1.0)
+        benchmark_total = float(benchmark_curve.iloc[-1] - 1.0)
+        metrics = st.columns(4)
+        metrics[0].metric("Strategy total return", f"{strategy_total * 100:.2f}%")
+        metrics[1].metric("Buy-and-hold return", f"{benchmark_total * 100:.2f}%")
+        metrics[2].metric("Strategy max drawdown", f"{backtest_drawdown.min() * 100:.2f}%")
+        metrics[3].metric("Completed long trades", str(completed_exits))
+        if trade_returns:
+            win_rate = 100 * sum(value > 0 for value in trade_returns) / len(trade_returns)
+            st.write(f"Completed-trade win rate, after assumed costs: **{win_rate:.1f}%**.")
+        else:
+            st.write("Completed-trade win rate is unavailable because no long-position trade has completed in this sample.")
+        equity_plot = pd.DataFrame({"Strategy equity (start = 1.0)": equity_curve, "Buy-and-hold equity (start = 1.0)": benchmark_curve})
+        if chart_index:
+            equity_plot.index = df[chart_index]
+        st.line_chart(equity_plot.tail(500))
+        st.caption(f"Assumed one-way cost: {float(cost_bps):.1f} basis points per entry or exit. Excludes variable slippage, financing, leverage and execution constraints. Historical results are not predictions or evidence of future profitability.")
+
         st.markdown("#### Recent observations")
         display_cols = ([date_col] if date_col else []) + ["close", "fast_ma", "slow_ma", "period_return_pct", "drawdown_pct"]
         st.dataframe(df[display_cols].tail(20).round(6), use_container_width=True, hide_index=True)

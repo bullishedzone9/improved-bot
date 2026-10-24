@@ -29,6 +29,22 @@ class LiveQuoteValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(QuoteValidationError, "stale"):
             validate_quote({"price": 1.1, "timestamp": stale}, "EURUSD", now=self.now)
 
+    def test_rejects_provider_stale_flag(self):
+        with self.assertRaisesRegex(QuoteValidationError, "explicitly marks.*stale"):
+            validate_quote({"bid": 1.1, "ask": 1.1002, "timestamp": self.now.isoformat(), "stale": True}, "EURUSD", now=self.now)
+
+    def test_rejects_provider_quote_age_metadata(self):
+        with self.assertRaisesRegex(QuoteValidationError, "stale"):
+            validate_quote({"bid": 1.1, "ask": 1.1002, "timestamp": self.now.isoformat(), "quoteAgeSeconds": 77734}, "EURUSD", now=self.now)
+
+    def test_accepts_fresh_provider_metadata(self):
+        result = validate_quote({"bid": 1.1, "ask": 1.1002, "timestamp": self.now.isoformat(), "stale": False, "quoteAgeSeconds": 12}, "EURUSD", now=self.now)
+        self.assertEqual(result["bid"], 1.1)
+
+    def test_uses_last_quote_at_timestamp(self):
+        result = validate_quote({"mid": 1.1, "lastQuoteAt": self.now.isoformat()}, "EURUSD", now=self.now)
+        self.assertTrue(result["timestamp_verified"])
+
     def test_rejects_future_timestamp(self):
         future = (self.now + timedelta(minutes=2)).isoformat()
         with self.assertRaisesRegex(QuoteValidationError, "future"):

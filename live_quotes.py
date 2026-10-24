@@ -52,13 +52,36 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 def validate_quote(payload: Any, symbol: str, *, now: datetime | None = None,
                    max_age_seconds: int = 180, max_future_skew_seconds: int = 30) -> dict[str, Any]:
-    """Normalize and validate a single quote; reject stale, malformed, or crossed quotes."""
+    """Normalize a quote and reject provider-marked, timestamped, or age-metadata stale data."""
     if isinstance(payload, list):
         if len(payload) != 1:
             raise QuoteValidationError("Expected exactly one quote in the provider response.")
         payload = payload[0]
     if not isinstance(payload, dict):
         raise QuoteValidationError("Provider response must be a JSON object.")
+
+    stale_flag = payload.get("stale")
+    if stale_flag is True or (isinstance(stale_flag, str) and stale_flag.strip().lower() in {"true", "yes", "1"}):
+        raise QuoteValidationError("Provider explicitly marks this quote as stale.")
+    if stale_flag is not None and not isinstance(stale_flag, (bool, str)):
+        raise QuoteValidationError("Provider stale flag has an unsupported format.")
+    if isinstance(stale_flag, str) and stale_flag.strip().lower() not in {"true", "false", "yes", "no", "1", "0", ""}:
+        raise QuoteValidationError("Provider stale flag has an unsupported format.")
+
+    raw_age = payload.get("quoteAgeSeconds")
+    if raw_age not in (None, ""):
+        if isinstance(raw_age, bool):
+            raise QuoteValidationError("Provider quote age metadata is invalid.")
+        try:
+            provider_age = float(raw_age)
+        except (TypeError, ValueError):
+            raise QuoteValidationError("Provider quote age metadata is invalid.")
+        if not math.isfinite(provider_age) or provider_age < 0:
+            raise QuoteValidationError("Provider quote age metadata is invalid.")
+        if provider_age > max_age_seconds:
+            raise QuoteValidationError(
+                f"Provider quote is stale ({int(provider_age)} seconds old by provider metadata; limit {max_age_seconds})."
+            )
 
     bid = _positive_number(payload, "bid", "Bid", "price", "rate", "last", "lastPrice", "mid", "Mid")
     ask = _positive_number(payload, "ask", "Ask", "askPrice")
@@ -67,8 +90,9 @@ def validate_quote(payload: Any, symbol: str, *, now: datetime | None = None,
     if bid is not None and ask is not None and ask < bid:
         raise QuoteValidationError("Ask is below bid; rejecting crossed or inconsistent quote.")
 
-    raw_stamp = next((payload.get(k) for k in ("timestamp", "time", "updated_at", "datetime", "date")
-                      if payload.get(k) not in (None, "")), None)
+    raw_stamp = next((payload.get(k) for k in (
+        "timestamp", "lastQuoteAt", "time", "updated_at", "datetime", "date"
+    ) if payload.get(k) not in (None, "")), None)
     parsed_stamp = _parse_timestamp(raw_stamp)
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -82,6 +106,7 @@ def validate_quote(payload: Any, symbol: str, *, now: datetime | None = None,
             raise QuoteValidationError(f"Provider quote is stale ({int(age)} seconds old; limit {max_age_seconds}).")
         if age < -max_future_skew_seconds:
             raise QuoteValidationError("Provider timestamp is too far in the future.")
+
     return {
         "symbol": symbol,
         "bid": bid,
@@ -89,7 +114,9 @@ def validate_quote(payload: Any, symbol: str, *, now: datetime | None = None,
         "timestamp": parsed_stamp.isoformat() if parsed_stamp else "Provider did not supply a timestamp; freshness cannot be verified",
         "timestamp_verified": parsed_stamp is not None,
         "received_at": current.isoformat(),
-        "source": "BiQuote public market-data API",
+        "source": str(payload.get("source") or "BiQuote public market-data API"),
+        "market_state": payload.get("marketState"),
+        "mid": _positive_number(payload, "mid", "Mid"),
     }
 
 

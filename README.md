@@ -37,10 +37,18 @@ date,open,high,low,close
 
 Rows are sorted by parsed date/time when a recognized, parseable date/time column is available; otherwise, CSV row order is used.
 
+## Automated checks
+
+GitHub Actions runs Python compilation and a Streamlit startup smoke test on pushes and pull requests targeting `main`. See [the workflow](.github/workflows/python-checks.yml).
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the recommended Streamlit hosting route and post-deployment verification checklist. A commit to GitHub does not mean the application is deployed.
+
 ## Important safety boundary
 
 **Paper analysis only.** This project does not connect to a broker, execute orders, or provide personalized financial advice. Moving-average comparisons are unvalidated descriptive candidates, not guaranteed signals. The illustrative risk budget does not calculate position size or account for leverage, spreads, fees, slippage, or execution risk. Test with sample data before relying on outputs.
 
 ## Current scope
 
-This is an early-stage analysis dashboard, not a production trading system. Authentication, persistent storage, automated market-data feeds, backtesting, and deployment configuration are not included in this version.
+This is an early-stage analysis dashboard, not a production trading system. Authentication, persistent storage, automated market-data feeds, and backtesting are not implemented.

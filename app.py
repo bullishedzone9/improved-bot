@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import os
 import pandas as pd
+import requests
 import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
 
@@ -26,6 +28,52 @@ st.warning(
     "PAPER ANALYSIS ONLY — No broker connection, live orders, or guaranteed trading signals. "
     "Use historical data for research, not as a promise of future results."
 )
+
+# Optional server-side bridge settings. Never put the bearer token in the UI.
+def _secret_value(key: str) -> str:
+    value = os.environ.get(key, "")
+    if value:
+        return value.strip()
+    try:
+        return str(st.secrets.get(key, "")).strip()
+    except Exception:
+        return ""
+
+
+bridge_url = _secret_value("ARC_SILK_BRIDGE_URL").rstrip("/")
+bridge_token = _secret_value("ARC_SILK_BRIDGE_TOKEN")
+st.markdown("### Exness MT4 connection")
+if not bridge_url or not bridge_token:
+    st.info("MT4 bridge is not configured yet. Add ARC_SILK_BRIDGE_URL and ARC_SILK_BRIDGE_TOKEN as server-side deployment secrets after deploying the HTTPS bridge.")
+else:
+    try:
+        response = requests.get(
+            f"{bridge_url}/mt4/latest",
+            headers={"Authorization": f"Bearer {bridge_token}"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            quote = data.get("quote", {})
+            age = float(data.get("age_seconds", 9999))
+            if not data.get("connected") or age > 30:
+                st.warning("MT4 telemetry is stale. No live connection is confirmed.")
+            else:
+                st.success(f"MT4 bridge connected · {quote.get('symbol', 'Unknown symbol')} · received {age:.1f}s ago")
+                b1, b2, b3 = st.columns(3)
+                b1.metric("MT4 Bid", f"{float(quote['bid']):.5f}")
+                b2.metric("MT4 Ask", f"{float(quote['ask']):.5f}")
+                b3.metric("Spread (points)", f"{float(quote['spread_points']):.1f}")
+                st.caption(f"MT4 event time: {quote.get('event_time', 'unknown')} · sequence: {quote.get('sequence', 'unknown')}")
+        elif response.status_code == 404:
+            st.info("Bridge is deployed, but no MT4 quote has arrived yet.")
+        elif response.status_code in (401, 403):
+            st.error("MT4 bridge authentication failed. Check deployment secrets; never paste the token into chat.")
+        else:
+            st.warning(f"MT4 bridge unavailable (HTTP {response.status_code}); live connection is unverified.")
+    except requests.RequestException:
+        st.warning("Cannot reach the MT4 bridge. No simulated MT4 quote is shown.")
+
 
 with st.sidebar:
     st.header("Analysis settings")

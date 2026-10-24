@@ -1,8 +1,7 @@
 """Small read-only receiver for MT4 quote telemetry.
 
-Run as a separate HTTPS service. Set ARC_SILK_BRIDGE_TOKEN in the hosting
-environment; never commit the token. The service retains only the latest
-validated quote in process memory and ignores account metrics.
+Deploy as a separate HTTPS service. Set ARC_SILK_BRIDGE_TOKEN in the hosting
+environment; never commit the token. Only normalized quote fields are retained.
 """
 from __future__ import annotations
 
@@ -18,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from mt4_bridge_validation import validate_mt4_telemetry
 
-app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.0")
+app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.1")
 _lock = Lock()
 _latest: dict[str, Any] | None = None
 _received_monotonic: float | None = None
@@ -32,8 +31,16 @@ def _expected_token() -> str:
     return token
 
 
+def _authorize(authorization: str | None) -> None:
+    expected = _expected_token()
+    supplied = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
+    # Public process-health endpoint; does not reveal quote/account data.
     return {"status": "ok", "mode": "read_only"}
 
 
@@ -42,11 +49,7 @@ async def receive_telemetry(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
-    expected = _expected_token()
-    supplied = authorization.removeprefix("Bearer ").strip() if authorization else ""
-    if not supplied or not hmac.compare_digest(supplied, expected):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+    _authorize(authorization)
     body = await request.body()
     if len(body) > MAX_BODY_BYTES:
         raise HTTPException(status_code=413, detail="Payload too large")
@@ -62,7 +65,6 @@ async def receive_telemetry(
     except (TypeError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=422, detail=f"Telemetry rejected: {exc}") from None
 
-    # Only normalized market quote fields are stored. Account metrics are ignored.
     safe_quote = {
         "schema_version": quote["schema_version"],
         "event_time": quote["event_time"],
@@ -81,7 +83,8 @@ async def receive_telemetry(
 
 
 @app.get("/mt4/latest")
-def latest_quote() -> dict[str, Any]:
+def latest_quote(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    _authorize(authorization)
     with _lock:
         quote = dict(_latest) if _latest else None
         received = _received_monotonic

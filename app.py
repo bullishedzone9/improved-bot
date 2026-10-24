@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import pandas as pd
 import streamlit as st
 
@@ -47,14 +48,33 @@ st.caption("Risk budget is an arithmetic estimate only. It does not calculate po
 st.markdown("### Historical price analysis")
 st.write("Upload a CSV containing a **close** column. Optional columns: **date/time**, **open**, **high**, **low**, and **volume**. Rows should be in chronological order.")
 uploaded = st.file_uploader("Historical price data (CSV)", type=["csv"])
+use_demo = st.checkbox("Use built-in simulated demo data (no download needed)", value=False)
 
-if uploaded is None:
-    st.info("Upload a historical CSV to view price trends, summary statistics, and drawdown.")
+if uploaded is None and not use_demo:
+    st.info("Upload a historical CSV or select the built-in simulated demo data to explore the dashboard.")
     st.markdown("#### CSV example")
-    st.code("date,open,high,low,close\n2026-01-01,1.1000,1.1050,1.0980,1.1030\n2026-01-02,1.1030,1.1080,1.1010,1.1060", language="csv")
+    st.code("date,open,high,low,close\\n2026-01-01,1.1000,1.1050,1.0980,1.1030\\n2026-01-02,1.1030,1.1080,1.1010,1.1060", language="csv")
 else:
     try:
-        df = pd.read_csv(uploaded)
+        if use_demo:
+            demo_rows = []
+            close_price = 1.1000
+            for i, date_value in enumerate(pd.date_range("2026-01-01", periods=65, freq="D")):
+                open_price = close_price
+                drift = 0.00018 + math.sin(i / 5) * 0.00012 + (-0.00008 if i % 7 == 0 else 0)
+                close_price = max(0.8, close_price + drift)
+                demo_rows.append({
+                    "date": date_value,
+                    "open": open_price,
+                    "high": max(open_price, close_price) + 0.0007 + (i % 3) * 0.00005,
+                    "low": min(open_price, close_price) - 0.0006 - (i % 4) * 0.00004,
+                    "close": close_price,
+                    "volume": 800 + (i * 37) % 600,
+                })
+            df = pd.DataFrame(demo_rows)
+            st.info("Simulated demo prices are for interface testing only; they are not real market data.")
+        else:
+            df = pd.read_csv(uploaded)
         df.columns = [str(col).strip().lower() for col in df.columns]
         if "close" not in df.columns:
             st.error("CSV is missing the required 'close' column.")

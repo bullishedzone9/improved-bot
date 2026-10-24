@@ -1,14 +1,15 @@
 """Small read-only receiver for MT4 quote telemetry.
 
 Run as a separate HTTPS service. Set ARC_SILK_BRIDGE_TOKEN in the hosting
-environment; never commit the token. The service intentionally retains only
-the latest validated quote in process memory and ignores account metrics.
+environment; never commit the token. The service retains only the latest
+validated quote in process memory and ignores account metrics.
 """
 from __future__ import annotations
 
 import hmac
 import os
 import time
+from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
@@ -61,8 +62,7 @@ async def receive_telemetry(
     except (TypeError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=422, detail=f"Telemetry rejected: {exc}") from None
 
-    # Keep only normalized market quote fields; balance/equity/free margin
-    # are deliberately not stored or returned.
+    # Only normalized market quote fields are stored. Account metrics are ignored.
     safe_quote = {
         "schema_version": quote["schema_version"],
         "event_time": quote["event_time"],
@@ -71,7 +71,7 @@ async def receive_telemetry(
         "ask": quote["ask"],
         "spread_points": quote["spread_points"],
         "sequence": quote["sequence"],
-        "received_at": quote["received_at"],
+        "received_at": datetime.now(timezone.utc).isoformat(),
     }
     global _latest, _received_monotonic
     with _lock:

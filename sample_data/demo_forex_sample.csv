@@ -1,4 +1,3 @@
-# SIMULATED DEMO DATA ONLY — not real market prices
 date,open,high,low,close,volume
 2026-01-01,1.10000,1.10080,1.09940,1.10010,800
 2026-01-02,1.10010,1.10105,1.09946,1.10030,837

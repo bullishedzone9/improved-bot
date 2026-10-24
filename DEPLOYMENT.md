@@ -26,3 +26,12 @@ This repository runs a Streamlit application. Use Streamlit Community Cloud (or 
 - Do not add broker credentials or private keys to source code or CSV files. If credentials are needed later, use the host's secret manager.
 - Keep GitHub Actions checks passing before release.
 - A deployment is not considered verified until the host build succeeds and the hosted app is manually smoke-tested.
+
+
+## Live quote validation
+
+- Live quote payloads are normalized by `live_quotes.py`; malformed JSON, non-positive/non-finite prices, ambiguous multi-row responses, and crossed bid/ask values are rejected.
+- When the provider supplies a parseable market timestamp, quotes older than 180 seconds or more than 30 seconds in the future are rejected. This threshold is a conservative application check, not a guarantee of market-data quality.
+- If the provider omits its market timestamp, the quote is visibly marked as freshness-unverified. It must not be treated as a verified live quote.
+- Unit tests cover valid ISO/Unix timestamps, missing timestamps, stale/future timestamps, crossed prices, and malformed responses.
+- The app's retrieval timestamp records when this server fetched the payload; it is not a substitute for the provider's market timestamp.

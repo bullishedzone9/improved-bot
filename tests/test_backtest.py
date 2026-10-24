@@ -118,5 +118,26 @@ class MovingAverageBacktestTests(unittest.TestCase):
                 self.assertLessEqual(result["max_drawdown"], 1e-12)
                 self.assertGreaterEqual(result["max_drawdown"], -1.0)
 
+    def test_warmup_periods_are_excluded_from_strategy_and_benchmark(self):
+        close = pd.Series([100.0, 110.0, 121.0, 133.1, 146.41])
+        fast = pd.Series([float("nan"), float("nan"), 2.0, 2.0, 2.0])
+        slow = pd.Series([float("nan"), float("nan"), 1.0, 1.0, 1.0])
+        result = run_moving_average_backtest(close, fast, slow, 0)
+        self.assertEqual(result["position"].tolist(), [0, 0, 0, 1, 1])
+        self.assertAlmostEqual(result["benchmark_period_returns"].iloc[1], 0.0)
+        self.assertAlmostEqual(result["benchmark_period_returns"].iloc[2], 0.0)
+        self.assertAlmostEqual(result["benchmark_period_returns"].iloc[3], 0.10)
+        self.assertAlmostEqual(result["strategy_period_returns"].iloc[3], 0.0)
+        self.assertAlmostEqual(result["strategy_period_returns"].iloc[4], 0.10)
+
+    def test_downtrend_long_only_strategy_does_not_claim_short_exposure(self):
+        close = pd.Series([100.0, 95.0, 90.0, 85.0, 80.0])
+        fast = pd.Series([0.0] * 5)
+        slow = pd.Series([1.0] * 5)
+        result = run_moving_average_backtest(close, fast, slow, 0)
+        self.assertEqual(result["position"].tolist(), [0, 0, 0, 0, 0])
+        self.assertAlmostEqual(result["strategy_return"], 0.0)
+        self.assertLess(result["benchmark_return"], 0.0)
+
 if __name__ == "__main__":
     unittest.main()

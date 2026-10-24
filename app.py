@@ -153,30 +153,19 @@ else:
         }))
         st.markdown("#### Historical strategy backtest")
         st.caption("Research only: long when fast SMA is above slow SMA; otherwise cash. Positions are delayed by one row to reduce look-ahead bias. Costs are charged on entries and exits.")
-        valid_signal = df["fast_ma"].notna() & df["slow_ma"].notna()
-        signal = (df["fast_ma"] > df["slow_ma"]).where(valid_signal, False).astype(int)
-        position = signal.shift(1).fillna(0).astype(int)
-        market_return = df["close"].pct_change().fillna(0.0)
-        position_change = position.diff().abs().fillna(position.abs())
-        strategy_return = (position * market_return - position_change * (float(cost_bps) / 10000.0)).where(valid_signal, 0.0)
-        equity_curve = (1.0 + strategy_return).cumprod()
-        benchmark_curve = (1.0 + market_return.where(valid_signal, 0.0)).cumprod()
-        backtest_drawdown = equity_curve / equity_curve.cummax() - 1.0
-        completed_exits = int(((position.shift(1).fillna(0) == 1) & (position == 0) & valid_signal).sum())
-        trade_returns = []
-        entry_index = None
-        for idx in range(len(df)):
-            if not bool(valid_signal.iloc[idx]):
-                continue
-            current_position = int(position.iloc[idx])
-            previous_position = int(position.iloc[idx - 1]) if idx > 0 else 0
-            if current_position == 1 and previous_position == 0:
-                entry_index = idx
-            elif current_position == 0 and previous_position == 1 and entry_index is not None:
-                trade_returns.append(float((1.0 + strategy_return.iloc[entry_index:idx + 1]).prod() - 1.0))
-                entry_index = None
-        strategy_total = float(equity_curve.iloc[-1] - 1.0)
-        benchmark_total = float(benchmark_curve.iloc[-1] - 1.0)
+        from backtest import run_moving_average_backtest
+
+        results = run_moving_average_backtest(
+            df["close"], df["fast_ma"], df["slow_ma"], float(cost_bps)
+        )
+        equity_curve = results["equity_curve"]
+        benchmark_curve = results["benchmark_curve"]
+        strategy_total = results["strategy_return"]
+        benchmark_total = results["benchmark_return"]
+        backtest_drawdown = results["drawdown"]
+        completed_exits = results["completed_trades"]
+        trade_returns = results["trade_returns"]
+
         metrics = st.columns(4)
         metrics[0].metric("Strategy total return", f"{strategy_total * 100:.2f}%")
         metrics[1].metric("Buy-and-hold return", f"{benchmark_total * 100:.2f}%")

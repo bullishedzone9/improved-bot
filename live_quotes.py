@@ -91,3 +91,19 @@ def validate_quote(payload: Any, symbol: str, *, now: datetime | None = None,
         "received_at": current.isoformat(),
         "source": "BiQuote public market-data API",
     }
+
+
+def fetch_quote_payload(symbol: str) -> Any:
+    """Fetch one provider payload with bounded network time; never fabricate fallback data."""
+    import requests
+
+    response = requests.get(
+        f"https://biquote.io/api/{symbol}",
+        headers={"Accept": "application/json", "User-Agent": "SILKOUS-Forex-Intelligence/1.0"},
+        timeout=8,
+    )
+    response.raise_for_status()
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise QuoteValidationError("Provider response was not valid JSON.") from exc

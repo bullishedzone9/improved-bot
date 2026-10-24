@@ -1,25 +1,28 @@
 # Deployment guide
 
-## Recommended host: Streamlit Community Cloud
+## Hosting
 
-This repository runs a Streamlit server. Vercel's standard deployment model is not a direct fit for this app, so do not create a Vercel project for it without first changing the application architecture.
+This repository runs a Streamlit application. Use Streamlit Community Cloud (or another host that supports persistent Streamlit processes); Vercel's standard static/serverless deployment model is not a direct fit.
 
-1. Sign in to Streamlit Community Cloud using the GitHub account that can access this repository.
-2. Authorize Streamlit to access the private `bullishedzone9/improved-bot` repository when prompted.
-3. Create a new app and select repository `bullishedzone9/improved-bot`, branch `main`, and main file path `app.py`.
-4. Deploy and wait for the build to complete.
-5. Open the app URL and verify that the dashboard renders, the CSV uploader appears, and the paper-analysis warning is visible.
-6. Upload a test CSV with at least 50 positive numeric close prices (or lower the slow moving average first) and verify the chart and summary render.
-7. Test a malformed CSV and a CSV without a `close` column; the app should show a useful error instead of crashing.
+1. Sign in to Streamlit Community Cloud with the GitHub account that can access `bullishedzone9/improved-bot`.
+2. Open the app's settings and confirm the repository is `bullishedzone9/improved-bot`, branch `main`, and main file `app.py`.
+3. A connected Streamlit app normally detects commits on the configured branch and rebuilds. If it does not, open the Streamlit app dashboard and reboot the app.
+4. Wait for the build to complete, then open the deployed app URL and run the smoke tests below.
 
-## Security and release checks
+## Smoke tests
 
-- The app is historical-data analysis only. It must not be represented as a live trading bot.
-- Do not add broker credentials or private keys to source code or CSV files.
-- If credentials are ever needed for a future feature, store them in the hosting provider's secret manager, never in Git.
-- Keep the GitHub Actions checks passing before merging future changes.
-- A deployment is not considered verified until its build succeeds and the hosted app is manually smoke-tested.
+- Confirm the ARC_SILK / SILKOUS Forex Intelligence header and paper-analysis warning appear.
+- In **Live Forex market snapshot**, choose a major pair and press **Refresh live quote**. Confirm a quote is displayed, with provider timestamp or explicit notice if the provider omits one.
+- If the provider is unavailable, confirm the app displays an error and does not silently substitute simulated prices.
+- Select the built-in simulated demo data and confirm the moving-average chart and historical backtest render. The demo data is explicitly simulated and is not a live quote.
+- Upload a CSV with at least 50 positive numeric close prices and confirm the chart and summary render.
+- Test a malformed CSV and a CSV without a `close` column; the app should show a useful error instead of crashing.
 
-## Current deployment status
+## Data and safety notes
 
-No hosting project or public app URL is configured in this repository yet. A repository commit does not mean the app is deployed.
+- Live snapshot integration uses the public BiQuote endpoint documented at `https://biquote.io/api/{SYMBOL}`. Provider availability, quote coverage, timestamps, latency, and licensing are external dependencies and must be validated in the hosted environment.
+- The snapshot is not guaranteed to match a broker's executable bid/ask. It is not an execution feed and does not place orders.
+- Historical backtesting remains separate from the live quote snapshot; the live snapshot does not automatically feed live candles into the backtest.
+- Do not add broker credentials or private keys to source code or CSV files. If credentials are needed later, use the host's secret manager.
+- Keep GitHub Actions checks passing before release.
+- A deployment is not considered verified until the host build succeeds and the hosted app is manually smoke-tested.

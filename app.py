@@ -88,7 +88,7 @@ def fetch_live_quote(symbol: str) -> dict:
                 continue
         return None
 
-    bid = numeric("bid", "Bid", "price", "rate", "last", "lastPrice")
+    bid = numeric("bid", "Bid", "price", "rate", "last", "lastPrice", "mid", "Mid")
     ask = numeric("ask", "Ask", "askPrice")
     if bid is None and ask is None:
         raise ValueError("The provider response did not contain a recognizable positive price.")
@@ -112,7 +112,7 @@ def fetch_live_quote(symbol: str) -> dict:
 try:
     quote = fetch_live_quote(live_pair)
     q1, q2, q3 = st.columns(3)
-    q1.metric("Bid / last", f"{quote['bid']:.5f}" if quote["bid"] is not None else "Unavailable")
+    q1.metric("Bid / last / mid", f"{quote['bid']:.5f}" if quote["bid"] is not None else "Unavailable")
     q2.metric("Ask", f"{quote['ask']:.5f}" if quote["ask"] is not None else "Unavailable")
     spread = quote["ask"] - quote["bid"] if quote["ask"] is not None and quote["bid"] is not None else None
     q3.metric("Displayed spread", f"{spread:.5f}" if spread is not None else "Unavailable")

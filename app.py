@@ -51,6 +51,77 @@ c2.metric("Illustrative risk budget", f"${risk_budget:,.2f}")
 c3.metric("Risk setting", f"{risk_pct:.2f}%")
 st.caption("Risk budget is an arithmetic estimate only. It does not calculate position size, leverage, spread, fees, slippage, or stop-loss execution.")
 
+st.markdown("### Live Forex market snapshot")
+st.caption("Quotes are supplied by a third-party market-data API. Feed availability and quote freshness depend on that provider; this is not a broker execution feed.")
+live_pairs = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+live_pair = st.selectbox("Live quote pair", live_pairs, index=0, key="live_quote_pair")
+if st.button("Refresh live quote", key="refresh_live_quote"):
+    st.cache_data.clear()
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_live_quote(symbol: str) -> dict:
+    import requests
+    from datetime import datetime, timezone
+
+    response = requests.get(
+        f"https://biquote.io/api/{symbol}",
+        headers={"Accept": "application/json", "User-Agent": "SILKOUS-Forex-Intelligence/1.0"},
+        timeout=8,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if isinstance(payload, list):
+        if not payload:
+            raise ValueError("The provider returned an empty quote.")
+        payload = payload[0]
+    if not isinstance(payload, dict):
+        raise ValueError("The provider returned an unexpected response format.")
+    # Accept common quote-field variants, while requiring at least one numeric price.
+    def numeric(*keys):
+        for key in keys:
+            value = payload.get(key)
+            try:
+                number = float(value)
+                if math.isfinite(number) and number > 0:
+                    return number
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    bid = numeric("bid", "Bid", "price", "rate", "last", "lastPrice")
+    ask = numeric("ask", "Ask", "askPrice")
+    if bid is None and ask is None:
+        raise ValueError("The provider response did not contain a recognizable positive price.")
+    stamp = payload.get("timestamp") or payload.get("time") or payload.get("updated_at") or payload.get("datetime")
+    if isinstance(stamp, (int, float)):
+        # Provider timestamps may be Unix seconds or milliseconds.
+        stamp_value = stamp / 1000 if stamp > 10_000_000_000 else stamp
+        try:
+            stamp = datetime.fromtimestamp(stamp_value, tz=timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            stamp = None
+    return {
+        "symbol": symbol,
+        "bid": bid,
+        "ask": ask,
+        "timestamp": str(stamp) if stamp else "Provider did not supply a timestamp",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "source": "BiQuote public market-data API",
+    }
+
+try:
+    quote = fetch_live_quote(live_pair)
+    q1, q2, q3 = st.columns(3)
+    q1.metric("Bid / last", f"{quote['bid']:.5f}" if quote["bid"] is not None else "Unavailable")
+    q2.metric("Ask", f"{quote['ask']:.5f}" if quote["ask"] is not None else "Unavailable")
+    spread = quote["ask"] - quote["bid"] if quote["ask"] is not None and quote["bid"] is not None else None
+    q3.metric("Displayed spread", f"{spread:.5f}" if spread is not None else "Unavailable")
+    st.caption(f"Provider time: {quote['timestamp']} · Retrieved: {quote['received_at']} · Source: {quote['source']}")
+    st.warning("Verify the provider's quote timestamp and compare prices with your intended broker before using this for decisions. No live trading or broker orders are enabled.")
+except Exception as exc:
+    st.error(f"Live quote unavailable for {live_pair}: {type(exc).__name__}: {exc}")
+    st.info("The historical CSV analysis and backtesting sections remain available. A failed quote request is not replaced with simulated data.")
+
 st.markdown("### Historical price analysis")
 st.write("Upload a CSV containing a **close** column. Optional columns: **date/time**, **open**, **high**, **low**, and **volume**. Rows should be in chronological order.")
 uploaded = st.file_uploader("Historical price data (CSV)", type=["csv"])
@@ -198,4 +269,4 @@ else:
         st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the CSV format and try again.")
 
 st.divider()
-st.caption("ARC_SILK • Historical data only • Paper mode • No orders executed")
+st.caption("ARC_SILK • Live quote snapshot + historical research • Paper mode • No orders executed")

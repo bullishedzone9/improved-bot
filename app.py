@@ -176,12 +176,52 @@ else:
                 st.write("Possible downward moving-average crossover in the latest row.")
 
         plot_df = df.tail(500).copy()
-        if chart_index:
-            plot_df = plot_df.set_index(chart_index)
         st.markdown("#### Price and moving averages")
-        st.line_chart(plot_df[["close", "fast_ma", "slow_ma"]].rename(columns={
-            "close": "Close", "fast_ma": f"SMA {int(fast_window)}", "slow_ma": f"SMA {int(slow_window)}"
-        }))
+        # Use an explicit quantitative axis so mobile rendering cannot choose
+        # a misleading range. Drop only missing MA points; keep Close visible
+        # from the beginning of the selected window.
+        import altair as alt
+
+        if chart_index:
+            plot_df["_chart_x"] = plot_df[chart_index]
+            x_encoding = alt.X("_chart_x:T", title="Date", axis=alt.Axis(labelOverlap=True, labelAngle=0))
+        else:
+            plot_df["_chart_x"] = range(len(plot_df))
+            x_encoding = alt.X("_chart_x:Q", title="Observation")
+
+        chart_long = plot_df[["_chart_x", "close", "fast_ma", "slow_ma"]].melt(
+            id_vars="_chart_x", var_name="series", value_name="price"
+        ).dropna(subset=["price"])
+        series_names = {
+            "close": "Close",
+            "fast_ma": f"SMA {int(fast_window)}",
+            "slow_ma": f"SMA {int(slow_window)}",
+        }
+        chart_long["series"] = chart_long["series"].map(series_names)
+        y_min = float(chart_long["price"].min())
+        y_max = float(chart_long["price"].max())
+        padding = max((y_max - y_min) * 0.08, abs(y_max) * 0.0001, 1e-8)
+        price_chart = (
+            alt.Chart(chart_long)
+            .mark_line()
+            .encode(
+                x=x_encoding,
+                y=alt.Y(
+                    "price:Q",
+                    title="Price",
+                    scale=alt.Scale(domain=[y_min - padding, y_max + padding], zero=False, nice=False),
+                ),
+                color=alt.Color("series:N", title="Series"),
+                tooltip=[
+                    alt.Tooltip("_chart_x:T" if chart_index else "_chart_x:Q", title="Date" if chart_index else "Observation"),
+                    alt.Tooltip("series:N", title="Series"),
+                    alt.Tooltip("price:Q", title="Price", format=".5f"),
+                ],
+            )
+            .properties(height=320)
+            .interactive()
+        )
+        st.altair_chart(price_chart, use_container_width=True)
         st.markdown("#### Historical strategy backtest")
         st.caption("Research only: long when fast SMA is above slow SMA; otherwise cash. Positions are delayed by one row to reduce look-ahead bias. Costs are charged on entries and exits.")
         from backtest import run_moving_average_backtest

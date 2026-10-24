@@ -44,12 +44,12 @@ c1.metric("Demo balance", f"${equity:,.2f}")
 c2.metric("Illustrative risk budget", f"${risk_budget:,.2f}")
 c3.metric("Risk setting", f"{risk_pct:.2f}%")
 st.caption("Risk budget is an arithmetic estimate only. It does not calculate position size, leverage, spread, fees, slippage, or stop-loss execution.")
-    st.markdown("#### Backtest assumptions")
-    cost_bps = st.number_input(
-        "Estimated cost per position change (basis points)",
-        min_value=0.0, max_value=100.0, value=2.0, step=0.5,
-        help="Illustrative one-way cost charged when entering or exiting a position. One basis point is 0.01%; this is not a live broker quote.",
-    )
+st.markdown("#### Backtest assumptions")
+cost_bps = st.number_input(
+    "Estimated cost per position change (basis points)",
+    min_value=0.0, max_value=100.0, value=2.0, step=0.5,
+    help="Illustrative one-way cost charged when entering or exiting a position. One basis point is 0.01%; this is not a live broker quote.",
+)
 
 st.markdown("### Historical price analysis")
 st.write("Upload a CSV containing a **close** column. Optional columns: **date/time**, **open**, **high**, **low**, and **volume**. Rows should be in chronological order.")

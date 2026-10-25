@@ -9,6 +9,7 @@ import hmac
 import json
 import os
 import time
+from collections import deque
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
@@ -23,6 +24,9 @@ _lock = Lock()
 _latest: dict[str, Any] | None = None
 _received_monotonic: float | None = None
 _last_sequence_by_symbol: dict[str, int] = {}
+_request_times: deque[float] = deque()
+RATE_LIMIT_REQUESTS = 60
+RATE_LIMIT_WINDOW_SECONDS = 60.0
 MAX_BODY_BYTES = 8_192
 
 
@@ -52,6 +56,16 @@ async def receive_telemetry(
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     _authorize(authorization)
+    # Process-local token rate limit. Configure an edge/proxy limit as well;
+    # this guard resets on restart and is not a substitute for distributed limits.
+    now = time.monotonic()
+    with _lock:
+        while _request_times and now - _request_times[0] >= RATE_LIMIT_WINDOW_SECONDS:
+            _request_times.popleft()
+        if len(_request_times) >= RATE_LIMIT_REQUESTS:
+            raise HTTPException(status_code=429, detail="Telemetry rate limit exceeded")
+        _request_times.append(now)
+
     content_length = request.headers.get("content-length")
     if content_length:
         try:

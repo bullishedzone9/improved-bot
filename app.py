@@ -22,6 +22,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def _secret_value(name: str) -> str:
+    """Read optional Streamlit secrets without breaking local-first startup."""
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return str(value).strip()
+
+
 st.title("⚡ ARC_SILK")
 st.subheader("SILKOUS Forex Intelligence")
 st.warning(

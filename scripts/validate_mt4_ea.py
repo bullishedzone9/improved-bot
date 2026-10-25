@@ -24,8 +24,13 @@ def main() -> None:
     source = SOURCE.read_text(encoding="utf-8")
     missing = [item for item in REQUIRED if item not in source]
     present = [item for item in FORBIDDEN if item in source]
-    if missing or present:
-        raise SystemExit(f"EA safety static check failed; missing={missing}; forbidden={present}")
+    has_escaped_newline = "\\n" in source
+    if missing or present or has_escaped_newline:
+        raise SystemExit(
+            "EA safety static check failed; "
+            f"missing={missing}; forbidden={present}; "
+            f"literal_escaped_newline={has_escaped_newline}"
+        )
     print("MT4 EA static safety checks passed (not a MetaEditor compile).")
 
 

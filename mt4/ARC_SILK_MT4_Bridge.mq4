@@ -18,6 +18,7 @@ input int    HttpTimeoutMs = 5000;
 datetime g_lastExport = 0;
 datetime g_last_tick_utc = 0;
 long g_sequence = 0;
+string g_sequence_key = "";
 
 int OnInit()
 {
@@ -38,6 +39,13 @@ int OnInit()
       }
       Print("ARC_SILK: HTTPS quote telemetry enabled. Add the exact bridge host under MT4 Tools > Options > Expert Advisors > Allow WebRequest.");
    }
+
+   // Persist sequence locally so restarting the EA does not reset replay protection.
+   g_sequence_key = "AS_SEQ_" + IntegerToString(AccountNumber()) + "_" + Symbol();
+   if(GlobalVariableCheck(g_sequence_key))
+      g_sequence = (long)GlobalVariableGet(g_sequence_key);
+   else
+      g_sequence = 0;
 
    EventSetTimer(ExportIntervalSeconds);
    Print("ARC_SILK MT4 bridge initialized in READ-ONLY mode. HTTP bridge enabled=", EnableHttpBridge);
@@ -151,6 +159,9 @@ void PostQuoteTelemetry()
 
    double spreadPoints = (ask - bid) / point;
    g_sequence++;
+   // Save before sending. Gaps are safe; sequence rollback is not.
+   if(StringLen(g_sequence_key) > 0)
+      GlobalVariableSet(g_sequence_key, (double)g_sequence);
 
    // Only market quote fields are sent. Account/balance/equity data is never sent.
    // event_time is the last actual tick time, not the timer's current time.

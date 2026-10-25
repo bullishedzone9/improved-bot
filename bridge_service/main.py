@@ -6,6 +6,7 @@ environment; never commit the token. Only normalized quote fields are retained.
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -51,12 +52,27 @@ async def receive_telemetry(
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     _authorize(authorization)
-    body = await request.body()
-    if len(body) > MAX_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="Payload too large")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Payload too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length") from None
+
+    # Read incrementally so a chunked request cannot force an unbounded body
+    # allocation before the payload-size limit is enforced.
+    chunks: list[bytes] = []
+    body_size = 0
+    async for chunk in request.stream():
+        body_size += len(chunk)
+        if body_size > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Payload too large")
+        chunks.append(chunk)
+    body = b"".join(chunks)
     try:
-        payload = await request.json()
-    except Exception:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="Invalid JSON") from None
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object required")

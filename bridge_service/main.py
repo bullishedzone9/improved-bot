@@ -52,35 +52,30 @@ def _initialize_db() -> None:
         )
 
 
-def _accept_sequence(symbol: str, sequence: int) -> bool:
-    # BEGIN IMMEDIATE serializes concurrent writers and persists replay state
-    # across restarts when the configured DB lives on persistent storage.
+def _accept_and_store_quote(quote: dict[str, Any]) -> bool:
+    # Commit replay state and latest quote together so a storage error cannot
+    # consume a sequence without persisting the corresponding quote.
     with sqlite3.connect(_db_path(), timeout=5) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT sequence FROM symbol_sequences WHERE symbol = ?", (symbol,)
+            "SELECT sequence FROM symbol_sequences WHERE symbol = ?",
+            (quote["symbol"],),
         ).fetchone()
-        if row is not None and sequence <= row[0]:
+        if row is not None and quote["sequence"] <= row[0]:
             conn.rollback()
             return False
         conn.execute(
             "INSERT INTO symbol_sequences(symbol, sequence) VALUES (?, ?) "
             "ON CONFLICT(symbol) DO UPDATE SET sequence = excluded.sequence",
-            (symbol, sequence),
+            (quote["symbol"], quote["sequence"]),
         )
-        conn.commit()
-    return True
-
-
-def _store_latest_quote(quote: dict[str, Any]) -> None:
-    with sqlite3.connect(_db_path(), timeout=5) as conn:
         conn.execute(
             "INSERT INTO latest_quote(id, payload) VALUES (1, ?) "
             "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload",
             (json.dumps(quote, separators=(",", ":")),),
         )
         conn.commit()
-
+    return True
 
 def _load_latest_quote() -> dict[str, Any] | None:
     with sqlite3.connect(_db_path(), timeout=5) as conn:
@@ -169,10 +164,9 @@ async def receive_telemetry(
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        accepted = _accept_sequence(safe_quote["symbol"], safe_quote["sequence"])
+        accepted = _accept_and_store_quote(safe_quote)
         if not accepted:
             raise HTTPException(status_code=409, detail="Repeated or out-of-order sequence")
-        _store_latest_quote(safe_quote)
     except sqlite3.Error:
         raise HTTPException(status_code=503, detail="Bridge storage unavailable") from None
     return JSONResponse({

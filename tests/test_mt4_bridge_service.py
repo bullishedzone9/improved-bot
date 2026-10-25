@@ -1,5 +1,7 @@
 import importlib
 import os
+import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timezone
 
@@ -7,6 +9,7 @@ from fastapi.testclient import TestClient
 
 TEST_TOKEN = "test-token-that-is-long-enough-for-bridge-auth"
 os.environ["ARC_SILK_BRIDGE_TOKEN"] = TEST_TOKEN
+os.environ["ARC_SILK_BRIDGE_DB_PATH"] = os.path.join(tempfile.gettempdir(), "arc_silk_bridge_tests.sqlite3")
 
 import bridge_service.main as bridge_main
 bridge_main = importlib.reload(bridge_main)
@@ -16,7 +19,8 @@ class MT4BridgeServiceTests(unittest.TestCase):
     def setUp(self):
         bridge_main._latest = None
         bridge_main._received_monotonic = None
-        bridge_main._last_sequence_by_symbol = {}
+        with sqlite3.connect(os.environ["ARC_SILK_BRIDGE_DB_PATH"]) as conn:
+            conn.execute("DELETE FROM symbol_sequences")
         bridge_main._request_times.clear()
         self.client = TestClient(bridge_main.app)
         self.payload = {
@@ -102,6 +106,13 @@ class MT4BridgeServiceTests(unittest.TestCase):
         self.assertEqual(self.post_quote(newer).status_code, 200)
         older = dict(self.payload, sequence=1, bid=1.1000, ask=1.1002)
         self.assertEqual(self.post_quote(older).status_code, 409)
+
+    def test_sequence_replay_is_rejected_after_module_restart(self):
+        self.assertEqual(self.post_quote().status_code, 200)
+        importlib.reload(bridge_main)
+        self.client = TestClient(bridge_main.app)
+        replay = self.post_quote()
+        self.assertEqual(replay.status_code, 409)
 
     def test_sequence_is_tracked_per_symbol(self):
         self.assertEqual(self.post_quote().status_code, 200)

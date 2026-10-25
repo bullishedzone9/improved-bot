@@ -8,7 +8,9 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import sqlite3
 import time
+from pathlib import Path
 from collections import deque
 from datetime import datetime, timezone
 from threading import Lock
@@ -23,11 +25,52 @@ app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.2")
 _lock = Lock()
 _latest: dict[str, Any] | None = None
 _received_monotonic: float | None = None
-_last_sequence_by_symbol: dict[str, int] = {}
 _request_times: deque[float] = deque()
 RATE_LIMIT_REQUESTS = 60
 RATE_LIMIT_WINDOW_SECONDS = 60.0
 MAX_BODY_BYTES = 8_192
+
+
+def _db_path() -> str:
+    # Production hosts must mount persistent storage and set this path explicitly.
+    return os.environ.get(
+        "ARC_SILK_BRIDGE_DB_PATH",
+        str(Path(__file__).resolve().parent / "bridge_state.sqlite3"),
+    )
+
+
+def _initialize_db() -> None:
+    path = _db_path()
+    if path != ":memory:":
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path, timeout=5) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS symbol_sequences "
+            "(symbol TEXT PRIMARY KEY, sequence INTEGER NOT NULL)"
+        )
+
+
+def _accept_sequence(symbol: str, sequence: int) -> bool:
+    # BEGIN IMMEDIATE serializes concurrent writers and persists replay state
+    # across application restarts when the configured DB lives on persistent storage.
+    with sqlite3.connect(_db_path(), timeout=5) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT sequence FROM symbol_sequences WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        if row is not None and sequence <= row[0]:
+            conn.rollback()
+            return False
+        conn.execute(
+            "INSERT INTO symbol_sequences(symbol, sequence) VALUES (?, ?) "
+            "ON CONFLICT(symbol) DO UPDATE SET sequence = excluded.sequence",
+            (symbol, sequence),
+        )
+        conn.commit()
+    return True
+
+
+_initialize_db()
 
 
 def _expected_token() -> str:
@@ -107,11 +150,13 @@ async def receive_telemetry(
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     global _latest, _received_monotonic
+    try:
+        accepted = _accept_sequence(safe_quote["symbol"], safe_quote["sequence"])
+    except sqlite3.Error:
+        raise HTTPException(status_code=503, detail="Replay-protection storage unavailable") from None
+    if not accepted:
+        raise HTTPException(status_code=409, detail="Repeated or out-of-order sequence")
     with _lock:
-        previous_sequence = _last_sequence_by_symbol.get(safe_quote["symbol"])
-        if previous_sequence is not None and safe_quote["sequence"] <= previous_sequence:
-            raise HTTPException(status_code=409, detail="Repeated or out-of-order sequence")
-        _last_sequence_by_symbol[safe_quote["symbol"]] = safe_quote["sequence"]
         _latest = safe_quote
         _received_monotonic = time.monotonic()
     return JSONResponse({

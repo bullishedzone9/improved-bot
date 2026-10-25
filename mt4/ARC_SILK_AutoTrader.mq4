@@ -38,8 +38,8 @@ int OnInit()
    if(FastMAPeriod < 2 || SlowMAPeriod <= FastMAPeriod ||
       ATRPeriod < 2 || ATRStopMultiplier <= 0 ||
       RewardRiskRatio <= 0 || RiskPercent <= 0 ||
-      RiskPercent > 1.0 || MaxDailyLossPercent <= 0 ||
-      MaxDailyLossPercent > 10.0 || MaxSpreadPoints < 0 ||
+      RiskPercent > 0.5 || MaxDailyLossPercent <= 0 ||
+      MaxDailyLossPercent > 2.0 || MaxSpreadPoints < 0 ||
       MaxOpenPositions < 1 || MaxRetries < 0 || MaxRetries > 3)
    {
       Print("ARC_SILK EA BLOCKED: invalid or unsafe input configuration.");

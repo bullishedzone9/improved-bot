@@ -21,6 +21,7 @@ class MT4BridgeServiceTests(unittest.TestCase):
         bridge_main._received_monotonic = None
         with sqlite3.connect(os.environ["ARC_SILK_BRIDGE_DB_PATH"]) as conn:
             conn.execute("DELETE FROM symbol_sequences")
+            conn.execute("DELETE FROM latest_quote")
         bridge_main._request_times.clear()
         self.client = TestClient(bridge_main.app)
         self.payload = {
@@ -113,6 +114,15 @@ class MT4BridgeServiceTests(unittest.TestCase):
         self.client = TestClient(bridge_main.app)
         replay = self.post_quote()
         self.assertEqual(replay.status_code, 409)
+
+    def test_latest_quote_survives_module_restart_and_remains_fresh(self):
+        self.assertEqual(self.post_quote().status_code, 200)
+        importlib.reload(bridge_main)
+        self.client = TestClient(bridge_main.app)
+        response = self.client.get("/mt4/latest", headers=self.auth)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["connected"])
+        self.assertEqual(response.json()["quote"]["sequence"], 1)
 
     def test_sequence_is_tracked_per_symbol(self):
         self.assertEqual(self.post_quote().status_code, 200)

@@ -21,10 +21,8 @@ from fastapi.responses import JSONResponse
 
 from mt4_bridge_validation import validate_mt4_telemetry
 
-app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.2")
+app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.3")
 _lock = Lock()
-_latest: dict[str, Any] | None = None
-_received_monotonic: float | None = None
 _request_times: deque[float] = deque()
 RATE_LIMIT_REQUESTS = 60
 RATE_LIMIT_WINDOW_SECONDS = 60.0
@@ -48,11 +46,15 @@ def _initialize_db() -> None:
             "CREATE TABLE IF NOT EXISTS symbol_sequences "
             "(symbol TEXT PRIMARY KEY, sequence INTEGER NOT NULL)"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS latest_quote "
+            "(id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL)"
+        )
 
 
 def _accept_sequence(symbol: str, sequence: int) -> bool:
     # BEGIN IMMEDIATE serializes concurrent writers and persists replay state
-    # across application restarts when the configured DB lives on persistent storage.
+    # across restarts when the configured DB lives on persistent storage.
     with sqlite3.connect(_db_path(), timeout=5) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
@@ -68,6 +70,25 @@ def _accept_sequence(symbol: str, sequence: int) -> bool:
         )
         conn.commit()
     return True
+
+
+def _store_latest_quote(quote: dict[str, Any]) -> None:
+    with sqlite3.connect(_db_path(), timeout=5) as conn:
+        conn.execute(
+            "INSERT INTO latest_quote(id, payload) VALUES (1, ?) "
+            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload",
+            (json.dumps(quote, separators=(",", ":")),),
+        )
+        conn.commit()
+
+
+def _load_latest_quote() -> dict[str, Any] | None:
+    with sqlite3.connect(_db_path(), timeout=5) as conn:
+        row = conn.execute("SELECT payload FROM latest_quote WHERE id = 1").fetchone()
+    if row is None:
+        return None
+    value = json.loads(row[0])
+    return value if isinstance(value, dict) else None
 
 
 _initialize_db()
@@ -117,8 +138,6 @@ async def receive_telemetry(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid Content-Length") from None
 
-    # Read incrementally so a chunked request cannot force an unbounded body
-    # allocation before the payload-size limit is enforced.
     chunks: list[bytes] = []
     body_size = 0
     async for chunk in request.stream():
@@ -149,16 +168,13 @@ async def receive_telemetry(
         "sequence": quote["sequence"],
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
-    global _latest, _received_monotonic
     try:
         accepted = _accept_sequence(safe_quote["symbol"], safe_quote["sequence"])
+        if not accepted:
+            raise HTTPException(status_code=409, detail="Repeated or out-of-order sequence")
+        _store_latest_quote(safe_quote)
     except sqlite3.Error:
-        raise HTTPException(status_code=503, detail="Replay-protection storage unavailable") from None
-    if not accepted:
-        raise HTTPException(status_code=409, detail="Repeated or out-of-order sequence")
-    with _lock:
-        _latest = safe_quote
-        _received_monotonic = time.monotonic()
+        raise HTTPException(status_code=503, detail="Bridge storage unavailable") from None
     return JSONResponse({
         "accepted": True,
         "symbol": safe_quote["symbol"],
@@ -169,12 +185,22 @@ async def receive_telemetry(
 @app.get("/mt4/latest")
 def latest_quote(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     _authorize(authorization)
-    with _lock:
-        quote = dict(_latest) if _latest else None
-        received = _received_monotonic
-    if quote is None or received is None:
+    try:
+        quote = _load_latest_quote()
+    except (sqlite3.Error, json.JSONDecodeError):
+        raise HTTPException(status_code=503, detail="Quote storage unavailable") from None
+    if quote is None:
         raise HTTPException(status_code=404, detail="No MT4 quote received yet")
-    age = max(0.0, time.monotonic() - received)
+    try:
+        received_at = datetime.fromisoformat(quote["received_at"])
+        if received_at.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+        age = (datetime.now(timezone.utc) - received_at.astimezone(timezone.utc)).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=503, detail="Stored quote timestamp is invalid") from None
+    if age < -5:
+        raise HTTPException(status_code=503, detail="Server clock is inconsistent")
+    age = max(0.0, age)
     if age > 30:
         raise HTTPException(status_code=503, detail="MT4 telemetry is stale")
     return {"connected": True, "age_seconds": round(age, 2), "quote": quote}

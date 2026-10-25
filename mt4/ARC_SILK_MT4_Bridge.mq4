@@ -4,7 +4,7 @@
 //| READ-ONLY: never submits, modifies, or closes trading orders.     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.2.0"
+#property version   "0.2.1"
 #property description "ARC_SILK MT4 read-only quote telemetry exporter."
 
 input int    ExportIntervalSeconds = 5;
@@ -16,6 +16,7 @@ input string BridgeToken = "";              // configure locally; never commit/s
 input int    HttpTimeoutMs = 5000;
 
 datetime g_lastExport = 0;
+datetime g_last_tick_utc = 0;
 long g_sequence = 0;
 
 int OnInit()
@@ -52,7 +53,10 @@ void OnDeinit(const int reason)
 
 void OnTick()
 {
-   // Timer-driven export keeps the configured cadence predictable.
+   // Capture real tick time. The timer must never make an old quote look fresh.
+   datetime tickUtc = TimeGMT();
+   if(tickUtc > 0)
+      g_last_tick_utc = tickUtc;
 }
 
 void OnTimer()
@@ -113,9 +117,9 @@ void ExportSnapshot()
    g_lastExport = now;
 }
 
-string UtcIsoTimestamp()
+string UtcIsoTimestamp(datetime value)
 {
-   string stamp = TimeToString(TimeGMT(), TIME_DATE|TIME_SECONDS);
+   string stamp = TimeToString(value, TIME_DATE|TIME_SECONDS);
    StringReplace(stamp, ".", "-");
    StringReplace(stamp, " ", "T");
    return(stamp + "Z");
@@ -125,6 +129,14 @@ void PostQuoteTelemetry()
 {
    if(StringLen(BridgeUrl) == 0 || StringLen(BridgeToken) < 32)
       return;
+
+   datetime nowUtc = TimeGMT();
+   if(g_last_tick_utc <= 0 || nowUtc <= 0 ||
+      nowUtc < g_last_tick_utc || nowUtc - g_last_tick_utc > 30)
+   {
+      Print("ARC_SILK: HTTP telemetry skipped; no recent real market tick (30-second freshness limit).");
+      return;
+   }
 
    RefreshRates();
    int digits = (int)MarketInfo(Symbol(), MODE_DIGITS);
@@ -141,9 +153,10 @@ void PostQuoteTelemetry()
    g_sequence++;
 
    // Only market quote fields are sent. Account/balance/equity data is never sent.
+   // event_time is the last actual tick time, not the timer's current time.
    string payload = StringFormat(
       "{\"schema_version\":\"1\",\"event_time\":\"%s\",\"symbol\":\"%s\",\"bid\":%s,\"ask\":%s,\"spread_points\":%s,\"sequence\":%I64d}",
-      UtcIsoTimestamp(), Symbol(), DoubleToString(bid, digits),
+      UtcIsoTimestamp(g_last_tick_utc), Symbol(), DoubleToString(bid, digits),
       DoubleToString(ask, digits), DoubleToString(spreadPoints, 1), g_sequence);
 
    char postData[];

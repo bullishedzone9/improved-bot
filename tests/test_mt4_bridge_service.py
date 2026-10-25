@@ -17,6 +17,7 @@ class MT4BridgeServiceTests(unittest.TestCase):
         bridge_main._latest = None
         bridge_main._received_monotonic = None
         bridge_main._last_sequence_by_symbol = {}
+        bridge_main._request_times.clear()
         self.client = TestClient(bridge_main.app)
         self.payload = {
             "schema_version": "1",
@@ -80,6 +81,15 @@ class MT4BridgeServiceTests(unittest.TestCase):
             headers={**self.auth, "Content-Type": "application/json"},
         )
         self.assertEqual(response.status_code, 413)
+
+    def test_rate_limit_rejects_excess_requests(self):
+        bridge_main.RATE_LIMIT_REQUESTS = 1
+        try:
+            self.assertEqual(self.post_quote().status_code, 200)
+            limited = self.post_quote(dict(self.payload, sequence=2))
+            self.assertEqual(limited.status_code, 429)
+        finally:
+            bridge_main.RATE_LIMIT_REQUESTS = 60
 
     def test_repeated_sequence_is_rejected(self):
         self.assertEqual(self.post_quote().status_code, 200)

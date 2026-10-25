@@ -1,176 +1,276 @@
 //+------------------------------------------------------------------+
 //| ARC_SILK_AutoTrader.mq4                                          |
-//| Demo-only moving-average crossover EA.                            |
-//| Safety: refuses non-demo accounts; no martingale/grid.             |
+//| Demo-only moving-average crossover EA with ATR risk controls.     |
+//| Safety: refuses non-demo accounts; no martingale/grid.            |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.1.0"
+#property version   "0.2.0"
 #property description "ARC_SILK demo-only MA crossover with ATR risk controls."
 
-input bool   EnableDemoTrading = false; // must be deliberately enabled on a demo account
-input int    MagicNumber = 26102509;
+// Demo trading remains OFF by default. Never use this EA on a live account.
+input bool            EnableDemoTrading = false;
+input int             MagicNumber = 26102509;
 input ENUM_TIMEFRAMES SignalTimeframe = PERIOD_M15;
-input int    FastMAPeriod = 20;
-input int    SlowMAPeriod = 50;
-input int    ATRPeriod = 14;
-input double ATRStopMultiplier = 2.0;
-input double RewardRiskRatio = 2.0;
-input double RiskPercent = 0.5;
-input double MaxDailyLossPercent = 2.0;
-input int    MaxSpreadPoints = 25;
-input int    SlippagePoints = 10;
+input int             FastMAPeriod = 20;
+input int             SlowMAPeriod = 50;
+input int             ATRPeriod = 14;
+input double          ATRStopMultiplier = 2.0;
+input double          RewardRiskRatio = 2.0;
+input double          RiskPercent = 0.5;
+input double          MaxDailyLossPercent = 2.0;
+input int             MaxSpreadPoints = 25;
+input int             SlippagePoints = 10;
+input int             MaxOpenPositions = 1;
 
 datetime g_lastBar = 0;
-double g_dayStartEquity = 0;
-int g_dayKey = -1;
-bool g_dailyLocked = false;
 
-int DateKey(datetime value) {
-   return TimeYear(value) * 1000 + TimeDayOfYear(value);
+//+------------------------------------------------------------------+
+string DailyEquityKey()
+{
+   string key = "AS_DAILY_EQ_" + IntegerToString(AccountNumber()) + "_" +
+                TimeToString(TimeCurrent(), TIME_DATE);
+   StringReplace(key, ".", "");
+   StringReplace(key, "-", "");
+   return(key);
 }
 
-void RefreshDailyGuard() {
-   int key = DateKey(TimeCurrent());
-   if(key != g_dayKey) {
-      g_dayKey = key;
-      string dayEquityKey = "AS_DAY_EQ_" + IntegerToString(AccountNumber()) + "_" +
-                            IntegerToString(MagicNumber) + "_" + Symbol() + "_" +
-                            IntegerToString(key);
-      if(GlobalVariableCheck(dayEquityKey)) {
-         g_dayStartEquity = GlobalVariableGet(dayEquityKey);
-      } else {
-         g_dayStartEquity = AccountEquity();
-         GlobalVariableSet(dayEquityKey, g_dayStartEquity);
-      }
-      g_dailyLocked = false;
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   if(!IsDemo())
+   {
+      Print("ARC_SILK SAFETY BLOCK: this EA is demo-account only.");
+      return(INIT_FAILED);
    }
-   if(g_dayStartEquity <= 0) {
-      g_dailyLocked = true;
+
+   if(FastMAPeriod < 2 || SlowMAPeriod <= FastMAPeriod ||
+      ATRPeriod < 2 || ATRStopMultiplier <= 0.0 || RewardRiskRatio <= 0.0 ||
+      RiskPercent <= 0.0 || RiskPercent > 0.5 ||
+      MaxDailyLossPercent <= 0.0 || MaxDailyLossPercent > 2.0 ||
+      MaxSpreadPoints <= 0 || MaxOpenPositions < 1)
+   {
+      Print("ARC_SILK: invalid settings; fail closed.");
+      return(INIT_PARAMETERS_INCORRECT);
+   }
+
+   string key = DailyEquityKey();
+   if(!GlobalVariableCheck(key) && !GlobalVariableSet(key, AccountEquity()))
+   {
+      Print("ARC_SILK: could not establish account-wide daily equity baseline.");
+      return(INIT_FAILED);
+   }
+
+   g_lastBar = iTime(Symbol(), SignalTimeframe, 0);
+   if(!EnableDemoTrading)
+      Print("ARC_SILK loaded safely: demo trading disabled. Enable only on a demo account.");
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   if(!IsDemo() || !EnableDemoTrading || !IsTradeAllowed())
       return;
-   }
-   double lossPct = (g_dayStartEquity - AccountEquity()) / g_dayStartEquity * 100.0;
-   if(lossPct >= MaxDailyLossPercent) g_dailyLocked = true;
+
+   if(!HasEnoughBars() || DailyLossLimitReached())
+      return;
+
+   RefreshRates();
+   if(MarketInfo(Symbol(), MODE_SPREAD) > MaxSpreadPoints)
+      return;
+
+   if(!IsNewSignalBar())
+      return;
+
+   if(CountOpenPositionsByMagic() >= MaxOpenPositions)
+      return;
+
+   int direction = GetClosedBarCrossDirection();
+   if(direction == 0)
+      return;
+
+   double atr = iATR(Symbol(), SignalTimeframe, ATRPeriod, 1);
+   if(atr <= 0.0 || atr == EMPTY_VALUE)
+      return;
+
+   TryOpen(direction, atr);
 }
 
-bool IsNewSignalBar() {
-   datetime bar = iTime(Symbol(), SignalTimeframe, 0);
-   if(bar <= 0 || bar == g_lastBar) return false;
-   g_lastBar = bar;
-   return true;
+//+------------------------------------------------------------------+
+bool HasEnoughBars()
+{
+   int requiredBars = MathMax(SlowMAPeriod, ATRPeriod) + 3;
+   return(iBars(Symbol(), SignalTimeframe) >= requiredBars);
 }
 
-int CurrentPositionCount() {
+//+------------------------------------------------------------------+
+bool IsNewSignalBar()
+{
+   datetime barTime = iTime(Symbol(), SignalTimeframe, 0);
+   if(barTime <= 0 || barTime == g_lastBar)
+      return(false);
+   g_lastBar = barTime;
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+int GetClosedBarCrossDirection()
+{
+   double fastPrevious = iMA(Symbol(), SignalTimeframe, FastMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 2);
+   double fastLast = iMA(Symbol(), SignalTimeframe, FastMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double slowPrevious = iMA(Symbol(), SignalTimeframe, SlowMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 2);
+   double slowLast = iMA(Symbol(), SignalTimeframe, SlowMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   if(fastPrevious <= 0.0 || fastLast <= 0.0 || slowPrevious <= 0.0 || slowLast <= 0.0)
+      return(0);
+
+   if(fastPrevious <= slowPrevious && fastLast > slowLast)
+      return(1);
+   if(fastPrevious >= slowPrevious && fastLast < slowLast)
+      return(-1);
+   return(0);
+}
+
+//+------------------------------------------------------------------+
+int CountOpenPositionsByMagic()
+{
    int count = 0;
-   for(int i=OrdersTotal()-1; i>=0; i--) {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber &&
-         (OrderType() == OP_BUY || OrderType() == OP_SELL)) count++;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+         count++;
    }
-   return count;
+   return(count);
 }
 
-double NormalizeLots(double lots) {
+//+------------------------------------------------------------------+
+bool DailyLossLimitReached()
+{
+   // Account-wide daily baseline shared by every symbol/chart using this account.
+   string key = DailyEquityKey();
+   if(!GlobalVariableCheck(key))
+   {
+      Print("ARC_SILK: daily equity baseline missing; fail closed.");
+      return(true);
+   }
+
+   double baseline = GlobalVariableGet(key);
+   if(baseline <= 0.0)
+      return(true);
+
+   double lossPercent = 100.0 * (baseline - AccountEquity()) / baseline;
+   if(lossPercent >= MaxDailyLossPercent)
+   {
+      Print("ARC_SILK: daily equity loss limit reached (", DoubleToString(lossPercent, 2),
+            "%). New entries blocked; existing positions are not automatically closed.");
+      return(true);
+   }
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+int LotDigits(double step)
+{
+   for(int digits = 0; digits <= 8; digits++)
+      if(MathAbs(step - NormalizeDouble(step, digits)) < 1e-8)
+         return(digits);
+   return(2);
+}
+
+//+------------------------------------------------------------------+
+double LotsForRisk(double stopDistance, int orderType)
+{
+   if(stopDistance <= 0.0)
+      return(0.0);
+
+   double equity = AccountEquity();
+   double riskMoney = equity * RiskPercent / 100.0;
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSizePoints = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double tickSizePrice = tickSizePoints * Point;
+
+   if(equity <= 0.0 || riskMoney <= 0.0 || tickValue <= 0.0 || tickSizePrice <= 0.0)
+      return(0.0);
+
+   double lossPerLot = (stopDistance / tickSizePrice) * tickValue;
+   if(lossPerLot <= 0.0)
+      return(0.0);
+
    double minLot = MarketInfo(Symbol(), MODE_MINLOT);
    double maxLot = MarketInfo(Symbol(), MODE_MAXLOT);
-   double step = MarketInfo(Symbol(), MODE_LOTSTEP);
-   if(step <= 0 || minLot <= 0 || maxLot < minLot) return 0;
-   lots = MathFloor(lots / step + 1e-8) * step;
-   lots = MathMin(maxLot, lots);
-   if(lots < minLot) return 0; // never round risk upward to broker minimum
-   int digits = 2;
-   if(step < 0.01) digits = 3;
-   if(step < 0.001) digits = 4;
-   return NormalizeDouble(lots, digits);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+   if(lotStep <= 0.0 || minLot <= 0.0 || maxLot < minLot)
+      return(0.0);
+
+   // Floor to the broker lot step. Do not force the minimum lot if it exceeds risk.
+   double lots = MathFloor((riskMoney / lossPerLot) / lotStep + 1e-8) * lotStep;
+   lots = NormalizeDouble(lots, LotDigits(lotStep));
+   if(lots < minLot || lots > maxLot)
+      return(0.0);
+
+   ResetLastError();
+   double marginAfter = AccountFreeMarginCheck(Symbol(), orderType, lots);
+   if(marginAfter <= 0.0 || GetLastError() == 134)
+      return(0.0);
+
+   return(lots);
 }
 
-double LotsForRisk(double stopDistance) {
-   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
-   double tickSize = MarketInfo(Symbol(), MODE_TICKSIZE);
-   if(stopDistance <= 0 || tickValue <= 0 || tickSize <= 0) return 0;
-   double riskMoney = AccountEquity() * RiskPercent / 100.0;
-   double tickSizePrice = tickSize * Point;
-   if(tickSizePrice <= 0) return 0;
-   double riskPerLot = (stopDistance / tickSizePrice) * tickValue;
-   if(riskMoney <= 0 || riskPerLot <= 0) return 0;
-   return NormalizeLots(riskMoney / riskPerLot);
+//+------------------------------------------------------------------+
+bool StopsMeetBrokerRules(double entry, double sl, double tp)
+{
+   double minimumDistance = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   if(minimumDistance < 0.0)
+      return(false);
+   if(MathAbs(entry - sl) < minimumDistance || MathAbs(entry - tp) < minimumDistance)
+      return(false);
+   return(true);
 }
 
-bool BuildSignal(int &direction, double &atr) {
-   direction = 0;
-   atr = iATR(Symbol(), SignalTimeframe, ATRPeriod, 1);
-   if(atr <= 0 || FastMAPeriod < 2 || SlowMAPeriod <= FastMAPeriod) return false;
-   double fast1 = iMA(Symbol(), SignalTimeframe, FastMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
-   double fast2 = iMA(Symbol(), SignalTimeframe, FastMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 2);
-   double slow1 = iMA(Symbol(), SignalTimeframe, SlowMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
-   double slow2 = iMA(Symbol(), SignalTimeframe, SlowMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 2);
-   if(fast2 <= slow2 && fast1 > slow1) direction = 1;
-   if(fast2 >= slow2 && fast1 < slow1) direction = -1;
-   return true;
-}
+//+------------------------------------------------------------------+
+void TryOpen(int direction, double atr)
+{
+   if(!IsDemo() || !EnableDemoTrading || !IsTradeAllowed() ||
+      IsTradeContextBusy() || DailyLossLimitReached())
+      return;
 
-bool StopsMeetBrokerRules(double entry, double sl, double tp) {
-   double minDistance = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-   if(minDistance < 0) return false;
-   if(MathAbs(entry - sl) < minDistance || MathAbs(entry - tp) < minDistance) return false;
-   return true;
-}
-
-void TryOpen(int direction, double atr) {
-   if(!EnableDemoTrading || !IsTradeAllowed() || IsTradeContextBusy()) return;
-   if(MarketInfo(Symbol(), MODE_SPREAD) > MaxSpreadPoints) return;
+   int orderType = direction > 0 ? OP_BUY : OP_SELL;
    RefreshRates();
    double entry = direction > 0 ? Ask : Bid;
-   double stopDistance = MathMax(atr * ATRStopMultiplier,
-                                  (MarketInfo(Symbol(), MODE_STOPLEVEL) + 2) * Point);
-   double sl = direction > 0 ? entry - stopDistance : entry + stopDistance;
-   double tp = direction > 0 ? entry + stopDistance * RewardRiskRatio
-                             : entry - stopDistance * RewardRiskRatio;
-   sl = NormalizeDouble(sl, Digits);
-   tp = NormalizeDouble(tp, Digits);
-   if(!StopsMeetBrokerRules(entry, sl, tp)) return;
+   if(entry <= 0.0)
+      return;
 
-   double lots = LotsForRisk(MathAbs(entry - sl));
-   if(lots <= 0) return;
-   int type = direction > 0 ? OP_BUY : OP_SELL;
+   double brokerMinimum = (MarketInfo(Symbol(), MODE_STOPLEVEL) + 2.0) * Point;
+   double stopDistance = MathMax(atr * ATRStopMultiplier, brokerMinimum);
+   if(stopDistance <= 0.0)
+      return;
+
+   double targetDistance = stopDistance * RewardRiskRatio;
+   int digits = (int)MarketInfo(Symbol(), MODE_DIGITS);
+   double sl = NormalizeDouble(direction > 0 ? entry - stopDistance : entry + stopDistance, digits);
+   double tp = NormalizeDouble(direction > 0 ? entry + targetDistance : entry - targetDistance, digits);
+
+   if(!StopsMeetBrokerRules(entry, sl, tp))
+      return;
+
+   double lots = LotsForRisk(stopDistance, orderType);
+   if(lots <= 0.0)
+   {
+      Print("ARC_SILK: lot size invalid/below minimum or margin insufficient; no order sent.");
+      return;
+   }
+
    ResetLastError();
-   double margin = AccountFreeMarginCheck(Symbol(), type, lots);
-   if(margin <= 0 || GetLastError() == 134) return;
-
-   // SL and TP are attached to the order. If broker rejects them, fail closed.
-   int ticket = OrderSend(Symbol(), type, lots, NormalizeDouble(entry, Digits),
+   int ticket = OrderSend(Symbol(), orderType, lots, NormalizeDouble(entry, digits),
                           SlippagePoints, sl, tp, "ARC_SILK demo MA/ATR",
                           MagicNumber, 0, clrNONE);
-   if(ticket < 0) Print("ARC_SILK: order rejected; error=", GetLastError());
-}
-
-int OnInit() {
-   if(!AccountDemo()) {
-      Print("ARC_SILK SAFETY BLOCK: this EA is demo-account only.");
-      return INIT_FAILED;
-   }
-   if(FastMAPeriod < 2 || SlowMAPeriod <= FastMAPeriod ||
-      ATRPeriod < 2 || ATRStopMultiplier <= 0 || RewardRiskRatio <= 0 ||
-      RiskPercent <= 0 || RiskPercent > 0.5 ||
-      MaxDailyLossPercent <= 0 || MaxDailyLossPercent > 2.0 ||
-      MaxSpreadPoints <= 0) {
-      Print("ARC_SILK: invalid settings; fail closed.");
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   g_lastBar = iTime(Symbol(), SignalTimeframe, 0);
-   RefreshDailyGuard();
-   if(!EnableDemoTrading)
-      Print("ARC_SILK loaded safely: demo trading disabled. Set EnableDemoTrading=true only on a demo account.");
-   return INIT_SUCCEEDED;
-}
-
-void OnTick() {
-   if(!AccountDemo()) return; // fail closed if account context changes
-   RefreshDailyGuard();
-   if(g_dailyLocked || !EnableDemoTrading || !IsNewSignalBar()) return;
-   if(CurrentPositionCount() >= 1) return; // one position per symbol/magic
-   int direction = 0;
-   double atr = 0;
-   if(!BuildSignal(direction, atr) || direction == 0) return;
-   TryOpen(direction, atr);
+   if(ticket < 0)
+      Print("ARC_SILK: OrderSend failed; error=", GetLastError());
+   else
+      Print("ARC_SILK demo order opened. Ticket=", ticket, ", lots=", DoubleToString(lots, LotDigits(MarketInfo(Symbol(), MODE_LOTSTEP))));
 }
 //+------------------------------------------------------------------+

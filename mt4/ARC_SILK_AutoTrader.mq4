@@ -88,7 +88,9 @@ double LotsForRisk(double stopDistance) {
    double tickSize = MarketInfo(Symbol(), MODE_TICKSIZE);
    if(stopDistance <= 0 || tickValue <= 0 || tickSize <= 0) return 0;
    double riskMoney = AccountEquity() * RiskPercent / 100.0;
-   double tickSizePrice = tickSize * Point;\n   if(tickSizePrice <= 0) return 0;\n   double riskPerLot = (stopDistance / tickSizePrice) * tickValue;
+   double tickSizePrice = tickSize * Point;
+   if(tickSizePrice <= 0) return 0;
+   double riskPerLot = (stopDistance / tickSizePrice) * tickValue;
    if(riskMoney <= 0 || riskPerLot <= 0) return 0;
    return NormalizeLots(riskMoney / riskPerLot);
 }

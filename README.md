@@ -45,6 +45,14 @@ GitHub Actions runs Python compilation and a Streamlit startup smoke test on pus
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the recommended Streamlit hosting route and post-deployment verification checklist. A commit to GitHub does not mean the application is deployed.
 
+## MT4 connection (optional)
+
+The dashboard is **local-first**: CSV research, demo calculations, and the external market-data snapshot do not require a bridge token. The MT4 EA can also export quote snapshots to a local MT4 CSV file with HTTP disabled.
+
+Use the separate read-only HTTPS bridge only if MT4 is running on another machine and its quotes must be sent to this hosted dashboard. In that remote setup, the server-side bearer token protects the network endpoint from unauthorized quote submissions; it is not a trading credential and does not enable order execution. Keep `EnableHttpBridge=false` unless the bridge has been deliberately deployed and configured. Never put a token in source control or chat.
+
+The current MT4 EA is a **read-only telemetry exporter**, not an automated order-execution bot. It has not yet been compiled or end-to-end tested in a real MT4 terminal, and no broker connection is claimed. Live order execution remains disabled.
+
 ## Important safety boundary
 
 **Paper analysis only.** This project does not connect to a broker, execute orders, or provide personalized financial advice. Moving-average comparisons are unvalidated descriptive candidates, not guaranteed signals. The illustrative risk budget does not calculate position size or account for leverage, spreads, fees, slippage, or execution risk. Test with sample data before relying on outputs.

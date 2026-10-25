@@ -45,9 +45,21 @@ GitHub Actions runs Python compilation and a Streamlit startup smoke test on pus
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the recommended Streamlit hosting route and post-deployment verification checklist. A commit to GitHub does not mean the application is deployed.
 
+## MT4 connection (optional)
+
+The dashboard is **local-first**: CSV research, demo calculations, and the external market-data snapshot do not require a bridge token. The MT4 EA can also export quote snapshots to a local MT4 CSV file with HTTP disabled.
+
+Use the separate read-only HTTPS bridge only if MT4 is running on another machine and its quotes must be sent to this hosted dashboard. In that remote setup, the server-side bearer token protects the network endpoint from unauthorized quote submissions; it is not a trading credential and does not enable order execution. Keep `EnableHttpBridge=false` unless the bridge has been deliberately deployed and configured. Never put a token in source control or chat.
+
+Two separate MT4 Expert Advisors are provided:
+- `mt4/ARC_SILK_MT4_Bridge.mq4`: read-only quote telemetry exporter; HTTP is disabled by default.
+- `mt4/ARC_SILK_AutoTrader.mq4`: an initial demo-only EMA crossover prototype using closed candles, ATR-based stop-loss, reward/risk target, 0.5% maximum configured risk per trade, 2% daily equity-loss lock, spread/margin checks, and one open position per symbol/magic number. It has no martingale, grid, or order-modification/closure logic.
+
+The automated trader refuses to initialize on a non-demo account and starts with `EnableDemoTrading=false`. Keep that default until you have compiled it in MetaEditor and completed Strategy Tester plus broker demo forward tests. The Python CI check is only a source-level safety regression check; it does **not** compile MQL4, validate profitability, or confirm broker execution. No broker connection or deployment of the trading EA is claimed.
+
 ## Important safety boundary
 
-**Paper analysis only.** This project does not connect to a broker, execute orders, or provide personalized financial advice. Moving-average comparisons are unvalidated descriptive candidates, not guaranteed signals. The illustrative risk budget does not calculate position size or account for leverage, spreads, fees, slippage, or execution risk. Test with sample data before relying on outputs.
+**Research and demo-only prototype.** The Streamlit dashboard remains analysis-only. The separate MT4 EA can submit orders only after it is compiled and explicitly enabled on an MT4 demo account; it hard-blocks non-demo accounts. The strategy is unvalidated and may lose money. Never assume the configured stop guarantees the maximum loss: gaps, slippage, broker execution, and contract specifications can increase losses. Test with historical data and demo forward tests; live trading is not enabled or authorized.
 
 ## Current scope
 

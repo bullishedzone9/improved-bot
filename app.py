@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import os
 import pandas as pd
+import requests
 import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
 
@@ -20,12 +22,73 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def _secret_value(name: str) -> str:
+    """Read optional Streamlit secrets without breaking local-first startup."""
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return str(value).strip()
+
+
 st.title("⚡ ARC_SILK")
 st.subheader("SILKOUS Forex Intelligence")
 st.warning(
     "PAPER ANALYSIS ONLY — No broker connection, live orders, or guaranteed trading signals. "
     "Use historical data for research, not as a promise of future results."
 )
+
+# Local-first by default. The remote MT4 bridge is optional and only needed
+# when MT4 runs on another machine and telemetry must reach this hosted dashboard.
+with st.expander("Optional: remote MT4 quote bridge", expanded=False):
+    st.caption(
+        "You do not need a server token to run local analysis or use the CSV exporter. "
+        "A bearer token is required only for the separate HTTPS bridge because it accepts "
+        "requests over a network. This connection is read-only and does not place trades."
+    )
+    bridge_url = _secret_value("ARC_SILK_BRIDGE_URL").rstrip("/")
+    bridge_token = _secret_value("ARC_SILK_BRIDGE_TOKEN")
+    if not bridge_url or not bridge_token:
+        st.info(
+            "Remote bridge is off. Keep this unset for local-only use. "
+            "Configure both values as server-side secrets only if you have deployed "
+            "the separate HTTPS bridge and configured the MT4 EA."
+        )
+    else:
+        try:
+            response = requests.get(
+                f"{bridge_url}/mt4/latest",
+                headers={"Authorization": f"Bearer {bridge_token}"},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                quote = data.get("quote", {})
+                age = float(data.get("age_seconds", 9999))
+                if not data.get("connected") or age > 30:
+                    st.warning("MT4 telemetry is stale. No live connection is confirmed.")
+                else:
+                    st.success(
+                        f"Read-only MT4 telemetry connected · {quote.get('symbol', 'Unknown symbol')} "
+                        f"· received {age:.1f}s ago"
+                    )
+                    b1, b2, b3 = st.columns(3)
+                    b1.metric("MT4 Bid", f"{float(quote['bid']):.5f}")
+                    b2.metric("MT4 Ask", f"{float(quote['ask']):.5f}")
+                    b3.metric("Spread (points)", f"{float(quote['spread_points']):.1f}")
+                    st.caption(
+                        f"MT4 event time: {quote.get('event_time', 'unknown')} · "
+                        f"sequence: {quote.get('sequence', 'unknown')}"
+                    )
+            elif response.status_code == 404:
+                st.info("Bridge is deployed, but no MT4 quote has arrived yet.")
+            elif response.status_code in (401, 403):
+                st.error("Bridge authentication failed. Check server-side secrets; never paste tokens into chat.")
+            else:
+                st.warning(f"Bridge unavailable (HTTP {response.status_code}); connection is unverified.")
+        except requests.RequestException:
+            st.warning("Cannot reach the remote MT4 bridge. No simulated MT4 quote is shown.")
+
 
 with st.sidebar:
     st.header("Analysis settings")

@@ -33,7 +33,15 @@ void RefreshDailyGuard() {
    int key = DateKey(TimeCurrent());
    if(key != g_dayKey) {
       g_dayKey = key;
-      g_dayStartEquity = AccountEquity();
+      string dayEquityKey = "AS_DAY_EQ_" + IntegerToString(AccountNumber()) + "_" +
+                            IntegerToString(MagicNumber) + "_" + Symbol() + "_" +
+                            IntegerToString(key);
+      if(GlobalVariableCheck(dayEquityKey)) {
+         g_dayStartEquity = GlobalVariableGet(dayEquityKey);
+      } else {
+         g_dayStartEquity = AccountEquity();
+         GlobalVariableSet(dayEquityKey, g_dayStartEquity);
+      }
       g_dailyLocked = false;
    }
    if(g_dayStartEquity <= 0) {
@@ -80,7 +88,7 @@ double LotsForRisk(double stopDistance) {
    double tickSize = MarketInfo(Symbol(), MODE_TICKSIZE);
    if(stopDistance <= 0 || tickValue <= 0 || tickSize <= 0) return 0;
    double riskMoney = AccountEquity() * RiskPercent / 100.0;
-   double riskPerLot = (stopDistance / tickSize) * tickValue;
+   double tickSizePrice = tickSize * Point;\n   if(tickSizePrice <= 0) return 0;\n   double riskPerLot = (stopDistance / tickSizePrice) * tickValue;
    if(riskMoney <= 0 || riskPerLot <= 0) return 0;
    return NormalizeLots(riskMoney / riskPerLot);
 }

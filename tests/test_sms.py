@@ -1,57 +1,55 @@
+import os
+import unittest
 from unittest.mock import Mock, patch
 
 from messaging.sms import send_sms
 
 
-def clear_sms_env(monkeypatch):
-    for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"):
-        monkeypatch.delenv(key, raising=False)
+class SmsTests(unittest.TestCase):
+    def setUp(self):
+        self.env = patch.dict(os.environ, {
+            "TWILIO_ACCOUNT_SID": "ACtest",
+            "TWILIO_AUTH_TOKEN": "test-token",
+            "TWILIO_FROM_NUMBER": "+15005550006",
+        })
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+
+    def test_missing_credentials_fails_closed(self):
+        for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"):
+            os.environ.pop(key, None)
+        result = send_sms("+2348012345678", "SILKOUS test")
+        self.assertFalse(result.sent)
+        self.assertIn("not configured", result.message)
+
+    def test_invalid_destination_fails_closed(self):
+        result = send_sms("08012345678", "SILKOUS test")
+        self.assertFalse(result.sent)
+        self.assertIn("E.164", result.message)
+
+    def test_empty_message_fails_closed(self):
+        result = send_sms("+2348012345678", "   ")
+        self.assertFalse(result.sent)
+        self.assertIn("empty", result.message)
+
+    @patch("messaging.sms.requests.post")
+    def test_successful_provider_acceptance(self, mock_post):
+        mock_post.return_value = Mock(status_code=201)
+        result = send_sms("+2348012345678", "SILKOUS setup test")
+        self.assertTrue(result.sent)
+        self.assertIn("accepted by provider", result.message)
+        mock_post.assert_called_once()
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 12)
+
+    @patch("messaging.sms.requests.post")
+    def test_provider_rejection_is_not_reported_as_sent(self, mock_post):
+        mock_post.return_value = Mock(status_code=400)
+        result = send_sms("+2348012345678", "SILKOUS setup test")
+        self.assertFalse(result.sent)
+        self.assertIn("HTTP 400", result.message)
 
 
-def test_missing_credentials_fails_closed(monkeypatch):
-    clear_sms_env(monkeypatch)
-    result = send_sms("+2348012345678", "SILKOUS test")
-    assert not result.sent
-    assert "not configured" in result.message
-
-
-def test_invalid_destination_fails_closed(monkeypatch):
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15005550006")
-    result = send_sms("08012345678", "SILKOUS test")
-    assert not result.sent
-    assert "E.164" in result.message
-
-
-def test_empty_message_fails_closed(monkeypatch):
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15005550006")
-    result = send_sms("+2348012345678", "   ")
-    assert not result.sent
-    assert "empty" in result.message
-
-
-@patch("messaging.sms.requests.post")
-def test_successful_provider_acceptance(mock_post, monkeypatch):
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15005550006")
-    mock_post.return_value = Mock(status_code=201)
-    result = send_sms("+2348012345678", "SILKOUS setup test")
-    assert result.sent
-    assert "accepted by provider" in result.message
-    mock_post.assert_called_once()
-    assert mock_post.call_args.kwargs["timeout"] == 12
-
-
-@patch("messaging.sms.requests.post")
-def test_provider_rejection_is_not_reported_as_sent(mock_post, monkeypatch):
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15005550006")
-    mock_post.return_value = Mock(status_code=400)
-    result = send_sms("+2348012345678", "SILKOUS setup test")
-    assert not result.sent
-    assert "HTTP 400" in result.message
+if __name__ == "__main__":
+    unittest.main()

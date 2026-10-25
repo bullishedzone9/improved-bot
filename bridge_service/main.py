@@ -17,10 +17,11 @@ from fastapi.responses import JSONResponse
 
 from mt4_bridge_validation import validate_mt4_telemetry
 
-app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.1")
+app = FastAPI(title="ARC_SILK MT4 Read-only Bridge", version="0.1.2")
 _lock = Lock()
 _latest: dict[str, Any] | None = None
 _received_monotonic: float | None = None
+_last_sequence_by_symbol: dict[str, int] = {}
 MAX_BODY_BYTES = 8_192
 
 
@@ -77,9 +78,17 @@ async def receive_telemetry(
     }
     global _latest, _received_monotonic
     with _lock:
+        previous_sequence = _last_sequence_by_symbol.get(safe_quote["symbol"])
+        if previous_sequence is not None and safe_quote["sequence"] <= previous_sequence:
+            raise HTTPException(status_code=409, detail="Repeated or out-of-order sequence")
+        _last_sequence_by_symbol[safe_quote["symbol"]] = safe_quote["sequence"]
         _latest = safe_quote
         _received_monotonic = time.monotonic()
-    return JSONResponse({"accepted": True, "symbol": safe_quote["symbol"], "sequence": safe_quote["sequence"]})
+    return JSONResponse({
+        "accepted": True,
+        "symbol": safe_quote["symbol"],
+        "sequence": safe_quote["sequence"],
+    })
 
 
 @app.get("/mt4/latest")

@@ -33,6 +33,8 @@ jobs:
         run: python -m compileall -q app.py backtest.py live_quotes.py mt4_bridge_validation.py bridge_service messaging tests
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+      - name: MT4 EA safety static checks (not a compiler)
+        run: python scripts/validate_mt4_ea.py
       - name: Streamlit startup smoke test
         run: |
           python - <<'PY'

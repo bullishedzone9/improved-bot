@@ -13,7 +13,7 @@ This separate service accepts validated quote telemetry from the MT4 Expert Advi
 ## Endpoints
 
 - `GET /health`: public process health only; it does not prove MT4 is connected.
-- `POST /mt4/telemetry`: authenticated quote telemetry receiver. Rejects payloads over 8 KiB, malformed or invalid quotes, and repeated/out-of-order sequence values for a symbol.
+- `POST /mt4/telemetry`: authenticated quote telemetry receiver. Rejects payloads over 8 KiB, malformed or invalid quotes, repeated/out-of-order sequence values for a symbol, and more than 60 requests per minute per service process.
 - `GET /mt4/latest`: authenticated latest quote, unavailable if no quote exists or the last receipt is older than 30 seconds.
 
 ## MT4 EA setup
@@ -34,5 +34,6 @@ JSON object with `schema_version`, timezone-aware ISO `event_time`, `symbol`, po
 - HTTP transmission is opt-in and disabled by default.
 - Sequence replay protection is currently in process memory and is scoped by symbol. It rejects repeated or lower sequence values while the service process is running, but a service restart resets this state; durable per-installation identity and replay protection are still required before production use.
 - Latest quote storage and freshness state are process memory and reset on restart.
-- Add per-installation credentials, rate limits, request-size controls at the hosting proxy, and deployment monitoring before public production use.
+- The in-process rate limit is 60 telemetry requests per minute and resets on restart; configure a distributed edge/proxy rate limit before public use.
+- Add per-installation credentials, durable per-installation replay state, request-size controls at the hosting proxy, and deployment monitoring before public production use.
 - Use demo accounts and verify quotes against the MT4 terminal before any trading-related decision. No order execution is implemented.

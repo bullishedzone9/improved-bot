@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import io
 import math
+import requests
 import pandas as pd
 import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
+from paper_engine import evaluate_signal
+from ema_atr_backtest import backtest_ema_atr
+from market_data import load_historical_upload
+from historical_sources import load_public_eurusd_h1
 
 st.set_page_config(
     page_title="ARC_SILK | Forex Intelligence",
@@ -83,11 +89,12 @@ except Exception as exc:
     st.info("No unverified or simulated fallback price is displayed. Historical analysis remains available.")
 
 st.markdown("### Historical price analysis")
-st.write("Upload a CSV containing a **close** column. Optional columns: **date/time**, **open**, **high**, **low**, and **volume**. Rows should be in chronological order.")
-uploaded = st.file_uploader("Historical price data (CSV)", type=["csv"])
+st.write("Upload historical OHLC candles as CSV, gzip-compressed JSON (.json.gz), or Parquet (.parquet). Columns should include **open**, **high**, **low**, **close** and preferably **date/time**. Rows are sorted by timestamp when available.")
+uploaded = st.file_uploader("Historical price data (CSV, .json.gz, or Parquet)", type=["csv", "gz", "json", "parquet", "pq"])
 use_demo = st.checkbox("Use built-in simulated demo data (no download needed)", value=False)
+use_real_eurusd = st.checkbox("Load real EURUSD H1 history (downloads public data)", value=False, help="Downloads a third-party Dukascopy-derived EURUSD hourly candle dataset. It is not Exness broker data.")
 
-if uploaded is None and not use_demo:
+if uploaded is None and not use_demo and not use_real_eurusd:
     st.info("Upload a historical CSV or select the built-in simulated demo data to explore the dashboard.")
     st.markdown("#### CSV example")
     st.code("date,open,high,low,close\\n2026-01-01,1.1000,1.1050,1.0980,1.1030\\n2026-01-02,1.1030,1.1080,1.1010,1.1060", language="csv")
@@ -110,8 +117,12 @@ else:
                 })
             df = pd.DataFrame(demo_rows)
             st.info("Simulated demo prices are for interface testing only; they are not real market data.")
+        elif use_real_eurusd:
+            with st.spinner("Downloading and validating public EURUSD H1 history…"):
+                df = load_public_eurusd_h1()
+            st.info("Loaded third-party EURUSD H1 historical candles for research. Source is Dukascopy-derived and is not an Exness broker feed; verify licensing and data suitability before reuse.")
         else:
-            df = pd.read_csv(uploaded)
+            df = load_historical_upload(uploaded.name, uploaded.getvalue())
         df.columns = [str(col).strip().lower() for col in df.columns]
         if "close" not in df.columns:
             st.error("CSV is missing the required 'close' column.")
@@ -178,6 +189,100 @@ else:
         if len(df) < max(3, int(slow_window)):
             st.error(f"Not enough valid positive close prices. Need at least {max(3, int(slow_window))} rows for the selected slow moving average; found {len(df)}.")
             st.stop()
+
+        # Show dataset provenance and scope before displaying any signal or backtest.
+        # The selected pair is a user-supplied label; the file itself may not identify its symbol.
+        st.markdown("#### Dataset verification")
+        source_name = ("Built-in simulated demo data" if use_demo else "Public EURUSD H1 Parquet dataset (Hugging Face; Dukascopy-derived)" if use_real_eurusd else uploaded.name)
+        st.write(f"**File/source:** {source_name}")
+        st.write(f"**Selected instrument label:** {pair}")
+        if chart_index == "_date":
+            first_date = df["_date"].iloc[0]
+            last_date = df["_date"].iloc[-1]
+            st.write(f"**Candle time range (UTC):** {first_date:%Y-%m-%d %H:%M} to {last_date:%Y-%m-%d %H:%M}")
+        else:
+            st.write("**Candle time range:** unavailable — no valid date/time column was supplied.")
+        st.write(f"**Valid candles:** {len(df):,} · **Rows removed:** {removed_rows:,}")
+        st.warning(
+            "Instrument identity and timeframe are not verified from file metadata. "
+            "Confirm the downloaded file matches the selected pair and intended timeframe before interpreting results."
+        )
+
+        st.markdown("#### EMA / ATR paper signal")
+        st.warning(
+            "PAPER SIGNAL ONLY — uses the last uploaded candle as a completed bar. "
+            "No broker connection or order execution. This is not a profitability claim."
+        )
+        if all(col in df.columns for col in ["open", "high", "low", "close"]):
+            try:
+                paper_result = evaluate_signal(
+                    df[["open", "high", "low", "close"]].to_dict("records"),
+                    fast_period=int(fast_window),
+                    slow_period=int(slow_window),
+                    atr_period=14,
+                )
+                signal_cols = st.columns(3)
+                signal_cols[0].metric("Latest EMA crossover", paper_result["signal"])
+                signal_cols[1].metric("ATR (14)", f'{paper_result["atr"]:.5f}')
+                signal_cols[2].metric("Stop distance (2 × ATR)", f'{paper_result["stop_distance"]:.5f}')
+                close_price = paper_result["close"]
+                if paper_result["signal"] == "BUY":
+                    stop_price = close_price - paper_result["stop_distance"]
+                    target_price = close_price + paper_result["target_distance"]
+                    st.write(f"Illustrative levels from latest close: stop **{stop_price:.5f}** · target **{target_price:.5f}**.")
+                elif paper_result["signal"] == "SELL":
+                    stop_price = close_price + paper_result["stop_distance"]
+                    target_price = close_price - paper_result["target_distance"]
+                    st.write(f"Illustrative levels from latest close: stop **{stop_price:.5f}** · target **{target_price:.5f}**.")
+                else:
+                    st.info("No new EMA crossover on the latest bar. No trade suggestion is active.")
+                st.caption(
+                    f'Mode: {paper_result["mode"]} · Order sent: {paper_result["order_sent"]} · '
+                    "Levels exclude spread, slippage, commission, and gaps."
+                )
+            except (ValueError, TypeError) as exc:
+                st.info(f"Paper signal unavailable for this data/settings: {exc}")
+        else:
+            st.info("EMA/ATR paper signal requires valid open, high, low, and close columns in the uploaded CSV.")
+
+        st.markdown("#### EMA / ATR historical paper backtest")
+        st.caption(
+            "Separate from the SMA backtest below. Crossover is confirmed on a completed candle; "
+            "entry is modelled at the next candle open. One position at a time; stop is assumed first "
+            "if stop and target are both touched in one candle. Costs are estimates, not broker quotes."
+        )
+        if all(col in df.columns for col in ["open", "high", "low", "close"]):
+            try:
+                ema_bt = backtest_ema_atr(
+                    df[["open", "high", "low", "close"]].to_dict("records"),
+                    fast_period=int(fast_window),
+                    slow_period=int(slow_window),
+                    atr_period=14,
+                    cost_bps_per_side=float(cost_bps),
+                )
+                bt1, bt2, bt3, bt4, bt5 = st.columns(5)
+                bt1.metric("EMA/ATR trades", str(ema_bt["trade_count"]))
+                bt2.metric("Win rate after estimated costs", f'{ema_bt["win_rate_pct"]:.1f}%')
+                bt3.metric("Profit factor", "∞" if ema_bt["profit_factor"] == float("inf") else f'{ema_bt["profit_factor"]:.2f}')
+                bt4.metric("Max trade-sequence drawdown", f'{ema_bt["max_drawdown_pct"]:.2f}%')
+                bt5.metric("Compounded trade return*", f'{ema_bt["compounded_return_pct"]:.2f}%')
+                st.caption(f'* Simplified sequential trade-equity estimate; summed trade returns: {ema_bt["net_return_sum_pct"]:.2f}%. Not a broker-account equity curve.')
+                st.caption(
+                    f'Mode: {ema_bt["mode"]} · Order sent: {ema_bt["order_sent"]} · '
+                    f'Estimated cost: {ema_bt["cost_bps_per_side"]:.2f} bps per side.'
+                )
+                with st.expander("Backtest assumptions and limitations"):
+                    for assumption in ema_bt["assumptions"]:
+                        st.write(f"• {assumption}")
+                if ema_bt["trades"]:
+                    trade_table = pd.DataFrame(ema_bt["trades"])
+                    st.dataframe(trade_table, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No completed EMA crossover trades were generated by this dataset and configuration.")
+            except (ValueError, TypeError) as exc:
+                st.info(f"EMA/ATR historical backtest unavailable: {exc}")
+        else:
+            st.info("EMA/ATR backtesting requires valid open, high, low, and close columns.")
 
         df["fast_ma"] = df["close"].rolling(int(fast_window)).mean()
         df["slow_ma"] = df["close"].rolling(int(slow_window)).mean()
@@ -334,9 +439,15 @@ else:
             st.write("- Moving-average comparisons are descriptive candidates only; they are not backtested or validated trading signals.")
             st.write("- CSV timestamps are parsed as UTC when a recognizable date/time column is present.")
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError, TypeError) as exc:
-        st.error(f"Could not process this CSV: {exc}")
+        if use_real_eurusd and uploaded is None and not use_demo:
+            st.error(f"Could not load/validate the public EURUSD history: {type(exc).__name__}: {exc}")
+        else:
+            st.error(f"Could not process the uploaded/simulated historical data: {exc}")
     except Exception as exc:
-        st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the CSV format and try again.")
+        if use_real_eurusd and uploaded is None and not use_demo:
+            st.error(f"Public EURUSD history download/analysis failed: {type(exc).__name__}: {exc}")
+        else:
+            st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the historical data format and try again.")
 
 st.divider()
 st.caption("ARC_SILK • Live quote snapshot + historical research • Paper mode • No orders executed")

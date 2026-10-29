@@ -21,6 +21,9 @@ class EmaAtrBacktestTests(unittest.TestCase):
         self.assertEqual(result["mode"], "PAPER_BACKTEST_ONLY")
         self.assertEqual(result["trade_count"], 0)
         self.assertEqual(result["win_rate_pct"], 0.0)
+        self.assertEqual(result["profit_factor"], 0.0)
+        self.assertEqual(result["max_drawdown_pct"], 0.0)
+        self.assertEqual(result["compounded_return_pct"], 0.0)
         self.assertFalse(result["order_sent"])
 
     def test_rejects_insufficient_history(self):

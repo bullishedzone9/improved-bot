@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import io
 import math
+import requests
 import pandas as pd
 import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
 from paper_engine import evaluate_signal
 from ema_atr_backtest import backtest_ema_atr
 from market_data import load_historical_upload
+from historical_sources import load_public_eurusd_h1
 
 st.set_page_config(
     page_title="ARC_SILK | Forex Intelligence",
@@ -89,8 +92,9 @@ st.markdown("### Historical price analysis")
 st.write("Upload historical OHLC candles as CSV, gzip-compressed JSON (.json.gz), or Parquet (.parquet). Columns should include **open**, **high**, **low**, **close** and preferably **date/time**. Rows are sorted by timestamp when available.")
 uploaded = st.file_uploader("Historical price data (CSV, .json.gz, or Parquet)", type=["csv", "gz", "json", "parquet", "pq"])
 use_demo = st.checkbox("Use built-in simulated demo data (no download needed)", value=False)
+use_real_eurusd = st.checkbox("Load real EURUSD H1 history (downloads public data)", value=False, help="Downloads a third-party Dukascopy-derived EURUSD hourly candle dataset. It is not Exness broker data.")
 
-if uploaded is None and not use_demo:
+if uploaded is None and not use_demo and not use_real_eurusd:
     st.info("Upload a historical CSV or select the built-in simulated demo data to explore the dashboard.")
     st.markdown("#### CSV example")
     st.code("date,open,high,low,close\\n2026-01-01,1.1000,1.1050,1.0980,1.1030\\n2026-01-02,1.1030,1.1080,1.1010,1.1060", language="csv")
@@ -113,6 +117,10 @@ else:
                 })
             df = pd.DataFrame(demo_rows)
             st.info("Simulated demo prices are for interface testing only; they are not real market data.")
+        elif use_real_eurusd:
+            with st.spinner("Downloading and validating public EURUSD H1 history…"):
+                df = load_public_eurusd_h1()
+            st.info("Loaded third-party EURUSD H1 historical candles for research. Source is Dukascopy-derived and is not an Exness broker feed; verify licensing and data suitability before reuse.")
         else:
             df = load_historical_upload(uploaded.name, uploaded.getvalue())
         df.columns = [str(col).strip().lower() for col in df.columns]
@@ -185,7 +193,7 @@ else:
         # Show dataset provenance and scope before displaying any signal or backtest.
         # The selected pair is a user-supplied label; the file itself may not identify its symbol.
         st.markdown("#### Dataset verification")
-        source_name = "Built-in simulated demo data" if use_demo else uploaded.name
+        source_name = ("Built-in simulated demo data" if use_demo else "Public EURUSD H1 Parquet dataset (Hugging Face; Dukascopy-derived)" if use_real_eurusd else uploaded.name)
         st.write(f"**File/source:** {source_name}")
         st.write(f"**Selected instrument label:** {pair}")
         if chart_index == "_date":
@@ -431,9 +439,15 @@ else:
             st.write("- Moving-average comparisons are descriptive candidates only; they are not backtested or validated trading signals.")
             st.write("- CSV timestamps are parsed as UTC when a recognizable date/time column is present.")
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError, TypeError) as exc:
-        st.error(f"Could not process this CSV: {exc}")
+        if use_real_eurusd and uploaded is None and not use_demo:
+            st.error(f"Could not load/validate the public EURUSD history: {type(exc).__name__}: {exc}")
+        else:
+            st.error(f"Could not process the uploaded/simulated historical data: {exc}")
     except Exception as exc:
-        st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the CSV format and try again.")
+        if use_real_eurusd and uploaded is None and not use_demo:
+            st.error(f"Public EURUSD history download/analysis failed: {type(exc).__name__}: {exc}")
+        else:
+            st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the historical data format and try again.")
 
 st.divider()
 st.caption("ARC_SILK • Live quote snapshot + historical research • Paper mode • No orders executed")

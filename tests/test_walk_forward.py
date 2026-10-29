@@ -26,6 +26,10 @@ class WalkForwardTests(unittest.TestCase):
         self.assertGreater(result["split_index"], 0)
         self.assertEqual(result["train"]["bars"] + result["out_of_sample"]["bars"], 240)
         self.assertIn("profit_factor", result["out_of_sample"])
+        self.assertIn("risk_normalized_profit_factor", result["out_of_sample"])
+        self.assertIn("risk_normalized_max_drawdown_pct", result["out_of_sample"])
+        self.assertIn("risk_normalized_compounded_return_pct", result["out_of_sample"])
+        self.assertFalse(result["out_of_sample"]["risk_normalized_mode"] == "")
 
     def test_rejects_invalid_fraction(self):
         with self.assertRaisesRegex(ValueError, "train_fraction"):

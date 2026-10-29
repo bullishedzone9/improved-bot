@@ -84,7 +84,7 @@ def backtest_ema_atr(
         net = gross - cost
         trades.append({
             "side": side, "signal_index": i, "entry_index": entry_index,
-            "exit_index": exit_index, "entry": entry, "exit": exit_price,
+            "exit_index": exit_index, "entry": entry, "stop": stop, "exit": exit_price,
             "exit_reason": reason, "gross_return_pct": gross * 100,
             "cost_pct": cost * 100, "net_return_pct": net * 100,
         })

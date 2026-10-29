@@ -299,20 +299,26 @@ else:
                     slow_period=int(slow_window),
                     atr_period=14,
                     cost_bps_per_side=float(cost_bps),
+                    risk_per_trade_pct=float(risk_pct),
                 )
                 train_metrics = wf["train"]
                 oos = wf["out_of_sample"]
                 st.write("Training candles: {:,} | Held-out candles: {:,}".format(train_metrics["bars"], oos["bars"]))
+                st.caption("The metrics below use an illustrative stop-distance-normalized equity model. They are estimates, not broker account results.")
                 cols = st.columns(5)
                 cols[0].metric("OOS trades", str(oos["trade_count"]))
-                cols[1].metric("OOS win rate", "{:.1f}%".format(oos["win_rate_pct"]))
-                cols[2].metric("OOS profit factor", "infinity" if oos["profit_factor"] == float("inf") else "{:.2f}".format(oos["profit_factor"]))
-                cols[3].metric("OOS max drawdown", "{:.2f}%".format(oos["max_drawdown_pct"]))
-                cols[4].metric("OOS compounded return", "{:.2f}%".format(oos["compounded_return_pct"]))
+                cols[1].metric("OOS win rate", "{:.1f}%".format(oos["risk_normalized_win_rate_pct"]))
+                cols[2].metric("OOS risk-sized PF", "infinity" if oos["risk_normalized_profit_factor"] == float("inf") else "{:.2f}".format(oos["risk_normalized_profit_factor"]))
+                cols[3].metric("OOS risk-sized drawdown", "{:.2f}%".format(oos["risk_normalized_max_drawdown_pct"]))
+                cols[4].metric("OOS risk-sized return", "{:.2f}%".format(oos["risk_normalized_compounded_return_pct"]))
+                st.caption("Raw price-return metrics for comparison — PF: {} · drawdown: {:.2f}% · compounded return: {:.2f}%.".format(
+                    "infinity" if oos["profit_factor"] == float("inf") else "{:.2f}".format(oos["profit_factor"]),
+                    oos["max_drawdown_pct"], oos["compounded_return_pct"]
+                ))
                 gate = evaluate_strategy_gates(
-                    profit_factor=oos["profit_factor"] if math.isfinite(oos["profit_factor"]) else None,
-                    max_drawdown_pct=oos["max_drawdown_pct"],
-                    out_of_sample_return_pct=oos["compounded_return_pct"],
+                    profit_factor=oos["risk_normalized_profit_factor"] if math.isfinite(oos["risk_normalized_profit_factor"]) else None,
+                    max_drawdown_pct=oos["risk_normalized_max_drawdown_pct"],
+                    out_of_sample_return_pct=oos["risk_normalized_compounded_return_pct"],
                     risk_per_trade_pct=float(risk_pct),
                     daily_loss_limit_pct=2.0,
                 )

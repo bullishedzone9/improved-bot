@@ -9,6 +9,7 @@ from live_quotes import fetch_quote_payload, validate_quote
 from paper_engine import evaluate_signal
 from ema_atr_backtest import backtest_ema_atr
 from market_data import load_historical_upload
+from historical_sources import load_public_eurusd_h1
 
 st.set_page_config(
     page_title="ARC_SILK | Forex Intelligence",
@@ -117,13 +118,8 @@ else:
             df = pd.DataFrame(demo_rows)
             st.info("Simulated demo prices are for interface testing only; they are not real market data.")
         elif use_real_eurusd:
-            history_url = "https://huggingface.co/datasets/Yllvar/fx-historical-data/resolve/main/EURUSD/EURUSD_H1.parquet"
-            with st.spinner("Downloading public EURUSD H1 history…"):
-                response = requests.get(history_url, timeout=45, headers={"User-Agent": "ARC_SILK-Historical-Research/1.0"})
-                response.raise_for_status()
-                if not response.content:
-                    raise ValueError("The historical-data source returned an empty file.")
-                df = pd.read_parquet(io.BytesIO(response.content))
+            with st.spinner("Downloading and validating public EURUSD H1 history…"):
+                df = load_public_eurusd_h1()
             st.info("Loaded third-party EURUSD H1 historical candles for research. Source is Dukascopy-derived and is not an Exness broker feed; verify licensing and data suitability before reuse.")
         else:
             df = load_historical_upload(uploaded.name, uploaded.getvalue())
@@ -443,9 +439,15 @@ else:
             st.write("- Moving-average comparisons are descriptive candidates only; they are not backtested or validated trading signals.")
             st.write("- CSV timestamps are parsed as UTC when a recognizable date/time column is present.")
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError, TypeError) as exc:
-        st.error(f"Could not process this CSV: {exc}")
+        if use_real_eurusd and uploaded is None and not use_demo:
+            st.error(f"Could not load/validate the public EURUSD history: {type(exc).__name__}: {exc}")
+        else:
+            st.error(f"Could not process the uploaded/simulated historical data: {exc}")
     except Exception as exc:
-        st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the CSV format and try again.")
+        if use_real_eurusd and uploaded is None and not use_demo:
+            st.error(f"Public EURUSD history download/analysis failed: {type(exc).__name__}: {exc}")
+        else:
+            st.error(f"Unexpected analysis error ({type(exc).__name__}). Check the historical data format and try again.")
 
 st.divider()
 st.caption("ARC_SILK • Live quote snapshot + historical research • Paper mode • No orders executed")

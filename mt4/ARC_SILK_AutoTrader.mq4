@@ -4,8 +4,8 @@
 //| Safety: refuses non-demo accounts; no martingale/grid.            |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.2.0"
-#property description "ARC_SILK demo-only MA crossover with ATR risk controls."
+#property version   "0.3.0"
+#property description "ARC_SILK demo-only MA/ATR EA with broker-neutral quote validation."
 
 // Demo trading remains OFF by default. Never use this EA on a live account.
 input bool            EnableDemoTrading = false;
@@ -96,7 +96,15 @@ void OnTick()
 bool HasEnoughBars()
 {
    int requiredBars = MathMax(SlowMAPeriod, ATRPeriod) + 3;
-   return(iBars(Symbol(), SignalTimeframe) >= requiredBars);
+   int availableBars = iBars(Symbol(), SignalTimeframe);
+   if(availableBars < requiredBars)
+   {
+      Print("ARC_SILK DATA BLOCK: insufficient candle history for ", Symbol(),
+            "; available=", availableBars, "; required=", requiredBars,
+            "; timeframe=", IntegerToString((int)SignalTimeframe));
+      return(false);
+   }
+   return(true);
 }
 
 bool IsNewSignalBar()

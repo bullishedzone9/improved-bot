@@ -42,6 +42,20 @@ class EmaAtrBacktestTests(unittest.TestCase):
                 cost_bps_per_side=-1,
             )
 
+    def test_crossover_enters_next_bar_and_stop_precedes_target(self):
+        candles = bars([10.0, 10.0, 10.0, 10.0, 10.0, 10.5])
+        candles.append({"open": 10.5, "high": 13.5, "low": 8.0, "close": 12.0})
+        result = backtest_ema_atr(
+            candles, fast_period=2, slow_period=3, atr_period=2,
+            cost_bps_per_side=0,
+        )
+        self.assertFalse(result["order_sent"])
+        self.assertGreaterEqual(result["trade_count"], 1)
+        trade = result["trades"][0]
+        self.assertEqual(trade["side"], "BUY")
+        self.assertEqual(trade["entry_index"], trade["signal_index"] + 1)
+        self.assertEqual(trade["exit_reason"], "STOP")
+
 
 if __name__ == "__main__":
     unittest.main()

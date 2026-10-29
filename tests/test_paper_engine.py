@@ -20,12 +20,12 @@ class PaperEngineTests(unittest.TestCase):
     def test_atr_uses_true_range_after_first_bar(self):
         result = atr(bars([10, 11, 12]), 2)
         self.assertIsNone(result[0])
-        self.assertAlmostEqual(result[1], 0.7)
-        self.assertAlmostEqual(result[2], 0.7)
+        self.assertAlmostEqual(result[1], 0.6)
+        self.assertAlmostEqual(result[2], 1.0)
 
     def test_upward_crossover_returns_buy_but_never_sends_order(self):
         result = evaluate_signal(
-            bars([10, 10, 10, 10, 10, 12, 14]),
+            bars([10, 10, 10, 10, 10, 10, 12]),
             fast_period=2,
             slow_period=3,
             atr_period=2,

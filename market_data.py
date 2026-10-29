@@ -25,7 +25,7 @@ def load_historical_upload(filename: str, payload: bytes) -> pd.DataFrame:
         frame.columns = [str(col).strip().lower() for col in frame.columns]
         aliases = {
             "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume",
-            "time": "date", "timestamp": "date", "timestamp_ms": "date",
+            "time": "date", "timestamp": "date",
         }
         frame = frame.rename(columns={old: new for old, new in aliases.items() if old in frame.columns and new not in frame.columns})
         if "timestamp_ms" in frame.columns and "date" not in frame.columns:

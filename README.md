@@ -12,7 +12,7 @@ A mobile-friendly Streamlit dashboard for exploratory analysis of uploaded histo
 - Historical close-to-close moving-average backtest with transaction-cost assumptions.
 - Quote validation helpers that reject malformed, crossed, or stale provider quotes.
 - MT4-free EMA/ATR paper-signal engine for completed OHLC candles.
-- Historical upload support for standard CSV and gzip-compressed JSON candles (`.json.gz`), including the `ts,o,h,l,c,v` schema used by EV Trading Labs-style archives.
+- Historical upload support for CSV, gzip-compressed JSON (`.json.gz`), and Parquet (`.parquet`) candles, with common OHLCV aliases normalized.
 
 ## MT4-free development route
 
@@ -36,12 +36,12 @@ streamlit run app.py
 
 ## Getting historical candles from an Android phone
 
-For actual historical candles, use a source that clearly identifies the instrument, timeframe, date range, timezone, and data type. One option is [EV Trading Labs historical OHLCV data](https://evtradelabs.com/data), which lists downloadable EURUSD and other instrument files across timeframes. Closed-year files are listed as available without signup; current-year and M1 files may require a free account. Check the site's current access and licence terms before using its data.
+For actual historical candles, use a source that clearly identifies the instrument, timeframe, date range, timezone, and data type. Options include [EV Trading Labs historical OHLCV data](https://evtradelabs.com/data), which lists EURUSD and other symbols in `.json.gz` format, and the [Yllvar Forex Historical Data dataset on Hugging Face](https://huggingface.co/datasets/Yllvar/fx-historical-data/tree/main/EURUSD), which provides Parquet files including EURUSD H1. The dataset lists a CC BY 4.0 licence; follow its attribution terms. Verify each source's current coverage, file metadata, and licence before use.
 
 1. Open the data source in your Android browser and select **EURUSD** (or the instrument you intend to study), a timeframe, and a completed calendar year.
-2. Download the historical `.json.gz` file to your phone. Avoid the repository's built-in simulated demo data for performance conclusions.
-3. Open the deployed ARC_SILK dashboard, choose the historical file uploader, and select the downloaded `.json.gz` file. The app normalizes `ts,o,h,l,c,v` into timestamp and OHLCV columns.
-4. Confirm the displayed instrument/timeframe and date range match the file. Backtest assumptions remain approximate; bid candles, spread, commissions, slippage and broker execution can differ.
+2. Download the historical `.json.gz` or `.parquet` file to your phone. For example, [EURUSD H1 Parquet](https://huggingface.co/datasets/Yllvar/fx-historical-data/resolve/main/EURUSD/EURUSD_H1.parquet) is a direct dataset file listed by the publisher. Avoid the repository's built-in simulated demo data for performance conclusions.
+3. Open the deployed ARC_SILK dashboard, choose the historical file uploader, and select the downloaded file. The app normalizes common JSON/Parquet OHLCV field names.
+4. Review the dashboard's dataset verification section. The selected instrument label is not automatically verified against the file, and timeframe may not be embedded in the data. Confirm the file identity and date range yourself. Backtest assumptions remain approximate; bid candles, spread, commissions, slippage and broker execution can differ.
 5. Save the results for research only. Do not infer live profitability from one timeframe or one date range.
 
 The parser is an upload helper: it does not fetch files automatically, connect to a broker, or execute orders. Always use a separate out-of-sample period when comparing strategy settings.

@@ -4,6 +4,7 @@ import math
 import pandas as pd
 import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
+from paper_engine import evaluate_signal
 
 st.set_page_config(
     page_title="ARC_SILK | Forex Intelligence",
@@ -178,6 +179,43 @@ else:
         if len(df) < max(3, int(slow_window)):
             st.error(f"Not enough valid positive close prices. Need at least {max(3, int(slow_window))} rows for the selected slow moving average; found {len(df)}.")
             st.stop()
+
+        st.markdown("#### EMA / ATR paper signal")
+        st.warning(
+            "PAPER SIGNAL ONLY — uses the last uploaded candle as a completed bar. "
+            "No broker connection or order execution. This is not a profitability claim."
+        )
+        if all(col in df.columns for col in ["open", "high", "low", "close"]):
+            try:
+                paper_result = evaluate_signal(
+                    df[["open", "high", "low", "close"]].to_dict("records"),
+                    fast_period=int(fast_window),
+                    slow_period=int(slow_window),
+                    atr_period=14,
+                )
+                signal_cols = st.columns(3)
+                signal_cols[0].metric("Latest EMA crossover", paper_result["signal"])
+                signal_cols[1].metric("ATR (14)", f'{paper_result["atr"]:.5f}')
+                signal_cols[2].metric("Stop distance (2 × ATR)", f'{paper_result["stop_distance"]:.5f}')
+                close_price = paper_result["close"]
+                if paper_result["signal"] == "BUY":
+                    stop_price = close_price - paper_result["stop_distance"]
+                    target_price = close_price + paper_result["target_distance"]
+                    st.write(f"Illustrative levels from latest close: stop **{stop_price:.5f}** · target **{target_price:.5f}**.")
+                elif paper_result["signal"] == "SELL":
+                    stop_price = close_price + paper_result["stop_distance"]
+                    target_price = close_price - paper_result["target_distance"]
+                    st.write(f"Illustrative levels from latest close: stop **{stop_price:.5f}** · target **{target_price:.5f}**.")
+                else:
+                    st.info("No new EMA crossover on the latest bar. No trade suggestion is active.")
+                st.caption(
+                    f'Mode: {paper_result["mode"]} · Order sent: {paper_result["order_sent"]} · '
+                    "Levels exclude spread, slippage, commission, and gaps."
+                )
+            except (ValueError, TypeError) as exc:
+                st.info(f"Paper signal unavailable for this data/settings: {exc}")
+        else:
+            st.info("EMA/ATR paper signal requires valid open, high, low, and close columns in the uploaded CSV.")
 
         df["fast_ma"] = df["close"].rolling(int(fast_window)).mean()
         df["slow_ma"] = df["close"].rolling(int(slow_window)).mean()

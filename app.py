@@ -182,6 +182,24 @@ else:
             st.error(f"Not enough valid positive close prices. Need at least {max(3, int(slow_window))} rows for the selected slow moving average; found {len(df)}.")
             st.stop()
 
+        # Show dataset provenance and scope before displaying any signal or backtest.
+        # The selected pair is a user-supplied label; the file itself may not identify its symbol.
+        st.markdown("#### Dataset verification")
+        source_name = "Built-in simulated demo data" if use_demo else uploaded.name
+        st.write(f"**File/source:** {source_name}")
+        st.write(f"**Selected instrument label:** {pair}")
+        if chart_index == "_date":
+            first_date = df["_date"].iloc[0]
+            last_date = df["_date"].iloc[-1]
+            st.write(f"**Candle time range (UTC):** {first_date:%Y-%m-%d %H:%M} to {last_date:%Y-%m-%d %H:%M}")
+        else:
+            st.write("**Candle time range:** unavailable — no valid date/time column was supplied.")
+        st.write(f"**Valid candles:** {len(df):,} · **Rows removed:** {removed_rows:,}")
+        st.warning(
+            "Instrument identity and timeframe are not verified from file metadata. "
+            "Confirm the downloaded file matches the selected pair and intended timeframe before interpreting results."
+        )
+
         st.markdown("#### EMA / ATR paper signal")
         st.warning(
             "PAPER SIGNAL ONLY — uses the last uploaded candle as a completed bar. "

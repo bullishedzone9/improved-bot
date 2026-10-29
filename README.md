@@ -10,6 +10,7 @@ A mobile-friendly Streamlit dashboard for exploratory analysis of uploaded histo
 - Descriptive bullish/bearish/neutral trend candidates and latest-row crossover notes.
 - Illustrative risk-budget arithmetic and price-series drawdown summary.
 - Historical close-to-close moving-average backtest with transaction-cost assumptions.
+- EMA/ATR paper backtest reports profit factor, simplified compounded trade return, and trade-sequence drawdown alongside win rate.
 - Quote validation helpers that reject malformed, crossed, or stale provider quotes.
 - MT4-free EMA/ATR paper-signal engine for completed OHLC candles.
 - Historical upload support for CSV, gzip-compressed JSON (`.json.gz`), and Parquet (`.parquet`) candles, with common OHLCV aliases normalized.

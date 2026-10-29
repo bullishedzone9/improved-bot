@@ -73,8 +73,17 @@ void OnTick()
       return;
 
    RefreshRates();
-   if(MarketInfo(Symbol(), MODE_SPREAD) > MaxSpreadPoints)
+   if(!MarketDataIsValid())
       return;
+
+   double spreadPoints = (Ask - Bid) / Point;
+   if(spreadPoints > MaxSpreadPoints)
+   {
+      Print("ARC_SILK DATA BLOCK: spread too high for ", Symbol(),
+            "; spread_points=", DoubleToString(spreadPoints, 1),
+            "; limit=", MaxSpreadPoints);
+      return;
+   }
 
    if(!IsNewSignalBar())
       return;
@@ -83,12 +92,27 @@ void OnTick()
       return;
 
    int direction = GetClosedBarCrossDirection();
+   double atr = iATR(Symbol(), SignalTimeframe, ATRPeriod, 1);
+   double spreadPointsNow = (Ask - Bid) / Point;
+
+   Print("ARC_SILK DATA CHECK: symbol=", Symbol(),
+         "; timeframe=", IntegerToString((int)SignalTimeframe),
+         "; quote_time=", TimeToString((datetime)MarketInfo(Symbol(), MODE_TIME)),
+         "; Bid=", DoubleToString(Bid, Digits),
+         "; Ask=", DoubleToString(Ask, Digits),
+         "; spread_points=", DoubleToString(spreadPointsNow, 1),
+         "; bars=", iBars(Symbol(), SignalTimeframe),
+         "; direction=", direction,
+         "; ATR=", DoubleToString(atr, Digits));
+
    if(direction == 0)
       return;
 
-   double atr = iATR(Symbol(), SignalTimeframe, ATRPeriod, 1);
    if(atr <= 0.0 || atr == EMPTY_VALUE)
+   {
+      Print("ARC_SILK DATA BLOCK: ATR unavailable/invalid; no order sent.");
       return;
+   }
 
    TryOpen(direction, atr);
 }
@@ -104,6 +128,35 @@ bool HasEnoughBars()
             "; timeframe=", IntegerToString((int)SignalTimeframe));
       return(false);
    }
+   return(true);
+}
+
+bool MarketDataIsValid()
+{
+   // Broker-neutral quote sanity checks. Uses the terminal's configured feed;
+   // these checks do not independently prove that the feed is connected.
+   double bid = MarketInfo(Symbol(), MODE_BID);
+   double ask = MarketInfo(Symbol(), MODE_ASK);
+   datetime quoteTime = (datetime)MarketInfo(Symbol(), MODE_TIME);
+   datetime barTime = iTime(Symbol(), SignalTimeframe, 0);
+
+   if(Point <= 0.0 || bid <= 0.0 || ask <= 0.0 || ask < bid)
+   {
+      Print("ARC_SILK DATA BLOCK: invalid Bid/Ask/Point for ", Symbol(),
+            "; Bid=", DoubleToString(bid, Digits),
+            "; Ask=", DoubleToString(ask, Digits),
+            "; Point=", DoubleToString(Point, Digits));
+      return(false);
+   }
+
+   if(quoteTime <= 0 || barTime <= 0 || iBars(Symbol(), SignalTimeframe) <= 0)
+   {
+      Print("ARC_SILK DATA BLOCK: quote timestamp or candle history unavailable for ",
+            Symbol(), "; quote_time=", TimeToString(quoteTime),
+            "; bar_time=", TimeToString(barTime));
+      return(false);
+   }
+
    return(true);
 }
 

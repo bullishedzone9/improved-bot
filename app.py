@@ -86,8 +86,8 @@ except Exception as exc:
     st.info("No unverified or simulated fallback price is displayed. Historical analysis remains available.")
 
 st.markdown("### Historical price analysis")
-st.write("Upload historical OHLC candles as CSV, or a gzip-compressed JSON candle file (.json.gz). CSV columns should include **open**, **high**, **low**, **close** and preferably **date/time**. Rows should be in chronological order.")
-uploaded = st.file_uploader("Historical price data (CSV or .json.gz)", type=["csv", "gz", "json"])
+st.write("Upload historical OHLC candles as CSV, gzip-compressed JSON (.json.gz), or Parquet (.parquet). Columns should include **open**, **high**, **low**, **close** and preferably **date/time**. Rows are sorted by timestamp when available.")
+uploaded = st.file_uploader("Historical price data (CSV, .json.gz, or Parquet)", type=["csv", "gz", "json", "parquet", "pq"])
 use_demo = st.checkbox("Use built-in simulated demo data (no download needed)", value=False)
 
 if uploaded is None and not use_demo:

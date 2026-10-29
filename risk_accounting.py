@@ -1,8 +1,8 @@
 """Risk-normalized equity accounting for historical research only.
 
-Converts price-return trade results into illustrative account returns using a
-fixed fraction of current equity at the initial stop distance. Not broker-grade
-position sizing. Never authorizes order execution.
+Converts net price-return trade results into illustrative account returns using
+a fixed fraction of equity at the initial stop distance. This is not
+broker-grade position sizing and never authorizes order execution.
 """
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ def calculate_risk_normalized_equity(
 ) -> dict[str, Any]:
     """Calculate illustrative equity from stop-normalized trade returns.
 
-    Each trade must provide positive entry and stop prices plus net_return_pct,
-    a price return percentage after estimated costs. Account return percentage
-    is net price return divided by initial stop-distance percentage, multiplied
-    by the chosen risk percentage.
+    Each trade requires positive entry and stop prices plus net_return_pct,
+    a price return percentage after estimated costs. The initial stop distance
+    is a proxy for risk; losses can exceed the budget due to gaps, time exits,
+    slippage, and other unmodelled execution effects.
     """
     if isinstance(risk_per_trade_pct, bool) or not isinstance(risk_per_trade_pct, (int, float)):
         raise ValueError("risk_per_trade_pct must be a finite number")
-    if not isfinite(risk_per_trade_pct) or not 0 < risk_per_trade_pct <= 0.5:
-        raise ValueError("risk_per_trade_pct must be > 0 and <= 0.5")
+    if not isfinite(risk_per_trade_pct) or not 0 < risk_per_trade_pct <= 100:
+        raise ValueError("risk_per_trade_pct must be > 0 and <= 100")
     if isinstance(starting_equity, bool) or not isinstance(starting_equity, (int, float)):
         raise ValueError("starting_equity must be a finite positive number")
     if not isfinite(starting_equity) or starting_equity <= 0:
@@ -35,6 +35,8 @@ def calculate_risk_normalized_equity(
     equity = peak = float(starting_equity)
     max_drawdown_pct = 0.0
     rows: list[dict[str, Any]] = []
+    positive_returns: list[float] = []
+    negative_returns: list[float] = []
 
     for index, trade in enumerate(trades):
         try:
@@ -50,7 +52,17 @@ def calculate_risk_normalized_equity(
 
         stop_distance_pct = abs(entry - stop) / entry * 100.0
         account_return_pct = (net_return_pct / stop_distance_pct) * float(risk_per_trade_pct)
-        equity *= max(0.0, 1.0 + account_return_pct / 100.0)
+        growth_factor = 1.0 + account_return_pct / 100.0
+        if growth_factor < 0:
+            raise ValueError(
+                f"trade {index} implies an account loss greater than 100%; "
+                "the simplified equity model cannot represent this safely"
+            )
+        equity *= growth_factor
+        if account_return_pct > 0:
+            positive_returns.append(account_return_pct)
+        elif account_return_pct < 0:
+            negative_returns.append(account_return_pct)
         peak = max(peak, equity)
         if peak > 0:
             max_drawdown_pct = max(max_drawdown_pct, (peak - equity) / peak * 100.0)
@@ -62,6 +74,12 @@ def calculate_risk_normalized_equity(
             "equity": equity,
         })
 
+    gross_wins = sum(positive_returns)
+    gross_losses = abs(sum(negative_returns))
+    profit_factor = (
+        gross_wins / gross_losses if gross_losses > 0
+        else (float("inf") if gross_wins > 0 else 0.0)
+    )
     return {
         "mode": "RISK_NORMALIZED_RESEARCH_ONLY",
         "execution_allowed": False,
@@ -71,12 +89,15 @@ def calculate_risk_normalized_equity(
         "max_drawdown_pct": max_drawdown_pct,
         "risk_per_trade_pct": float(risk_per_trade_pct),
         "trade_count": len(rows),
+        "win_rate_pct": (len(positive_returns) / len(rows) * 100.0) if rows else 0.0,
+        "profit_factor": profit_factor,
         "trades": rows,
         "limitations": [
-            "Uses stop distance as a proxy for initial account risk; not broker-grade position sizing.",
+            "Uses initial stop distance as a proxy for account risk; not broker-grade position sizing.",
             "Assumes supplied net price return already includes estimated costs.",
             "Does not model gaps, additional slippage, commissions, swaps, margin, pip value, or partial fills.",
             "Does not enforce an intraday daily-loss stop because trades have no validated timestamps.",
+            "A time exit or gap can lose more than the chosen initial risk budget.",
             "No broker connection or order execution.",
         ],
     }

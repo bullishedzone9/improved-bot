@@ -19,6 +19,7 @@ REQUIRED = (
     "iATR(",
     "MathFloor((riskMoney / lossPerLot) / lotStep",
     "existing positions are not automatically closed",
+    "new daily equity baseline established",
 )
 FORBIDDEN = (
     "AccountDemo()",

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import math
+import requests
 import pandas as pd
 import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
@@ -89,8 +91,9 @@ st.markdown("### Historical price analysis")
 st.write("Upload historical OHLC candles as CSV, gzip-compressed JSON (.json.gz), or Parquet (.parquet). Columns should include **open**, **high**, **low**, **close** and preferably **date/time**. Rows are sorted by timestamp when available.")
 uploaded = st.file_uploader("Historical price data (CSV, .json.gz, or Parquet)", type=["csv", "gz", "json", "parquet", "pq"])
 use_demo = st.checkbox("Use built-in simulated demo data (no download needed)", value=False)
+use_real_eurusd = st.checkbox("Load real EURUSD H1 history (downloads public data)", value=False, help="Downloads a third-party Dukascopy-derived EURUSD hourly candle dataset. It is not Exness broker data.")
 
-if uploaded is None and not use_demo:
+if uploaded is None and not use_demo and not use_real_eurusd:
     st.info("Upload a historical CSV or select the built-in simulated demo data to explore the dashboard.")
     st.markdown("#### CSV example")
     st.code("date,open,high,low,close\\n2026-01-01,1.1000,1.1050,1.0980,1.1030\\n2026-01-02,1.1030,1.1080,1.1010,1.1060", language="csv")
@@ -113,6 +116,15 @@ else:
                 })
             df = pd.DataFrame(demo_rows)
             st.info("Simulated demo prices are for interface testing only; they are not real market data.")
+        elif use_real_eurusd:
+            history_url = "https://huggingface.co/datasets/Yllvar/fx-historical-data/resolve/main/EURUSD/EURUSD_H1.parquet"
+            with st.spinner("Downloading public EURUSD H1 history…"):
+                response = requests.get(history_url, timeout=45, headers={"User-Agent": "ARC_SILK-Historical-Research/1.0"})
+                response.raise_for_status()
+                if not response.content:
+                    raise ValueError("The historical-data source returned an empty file.")
+                df = pd.read_parquet(io.BytesIO(response.content))
+            st.info("Loaded third-party EURUSD H1 historical candles for research. Source is Dukascopy-derived and is not an Exness broker feed; verify licensing and data suitability before reuse.")
         else:
             df = load_historical_upload(uploaded.name, uploaded.getvalue())
         df.columns = [str(col).strip().lower() for col in df.columns]
@@ -185,7 +197,7 @@ else:
         # Show dataset provenance and scope before displaying any signal or backtest.
         # The selected pair is a user-supplied label; the file itself may not identify its symbol.
         st.markdown("#### Dataset verification")
-        source_name = "Built-in simulated demo data" if use_demo else uploaded.name
+        source_name = ("Built-in simulated demo data" if use_demo else "Public EURUSD H1 Parquet dataset (Hugging Face; Dukascopy-derived)" if use_real_eurusd else uploaded.name)
         st.write(f"**File/source:** {source_name}")
         st.write(f"**Selected instrument label:** {pair}")
         if chart_index == "_date":

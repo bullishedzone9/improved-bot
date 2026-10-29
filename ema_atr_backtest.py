@@ -92,6 +92,18 @@ def backtest_ema_atr(
 
     wins = sum(t["net_return_pct"] > 0 for t in trades)
     total = sum(t["net_return_pct"] for t in trades)
+    gross_wins = sum(t["net_return_pct"] for t in trades if t["net_return_pct"] > 0)
+    gross_losses = abs(sum(t["net_return_pct"] for t in trades if t["net_return_pct"] < 0))
+    profit_factor = (gross_wins / gross_losses) if gross_losses > 0 else (float("inf") if gross_wins > 0 else 0.0)
+    # Trade-by-trade compounded equity curve, normalized to 1.0 starting capital.
+    equity = peak = 1.0
+    max_drawdown_pct = 0.0
+    for trade in trades:
+        equity *= max(0.0, 1.0 + trade["net_return_pct"] / 100.0)
+        peak = max(peak, equity)
+        if peak > 0:
+            max_drawdown_pct = max(max_drawdown_pct, (peak - equity) / peak * 100.0)
+    compounded_return_pct = (equity - 1.0) * 100.0
     return {
         "mode": "PAPER_BACKTEST_ONLY",
         "order_sent": False,
@@ -101,12 +113,15 @@ def backtest_ema_atr(
         "win_rate_pct": (wins / len(trades) * 100) if trades else 0.0,
         "net_return_sum_pct": total,
         "average_net_return_pct": total / len(trades) if trades else 0.0,
+        "profit_factor": profit_factor,
+        "max_drawdown_pct": max_drawdown_pct,
+        "compounded_return_pct": compounded_return_pct,
         "cost_bps_per_side": cost_bps,
         "assumptions": [
             "Crossover evaluated on completed bars; entry at next bar open.",
             "If stop and target are both touched in one bar, stop is assumed first.",
             "No overlapping positions; no spread model beyond configured cost estimate.",
-            "Returns are summed trade returns, not compounded portfolio returns.",
+            "net_return_sum_pct is the arithmetic sum; compounded_return_pct and max_drawdown_pct use a simplified sequential trade equity curve.",
             "No broker execution, position sizing, financing, or guarantee of future results.",
         ],
     }

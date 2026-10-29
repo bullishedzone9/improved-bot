@@ -9,7 +9,7 @@ REQUIRED = (
     "if(!IsDemo() || !EnableDemoTrading",
     "RiskPercent > 0.5",
     "MaxDailyLossPercent > 2.0",
-    "MODE_SPREAD",
+    "(Ask - Bid) / Point",
     "MODE_STOPLEVEL",
     "AccountFreeMarginCheck",
     "OrderSend(",
@@ -68,7 +68,7 @@ def strip_comments_and_strings(source: str) -> str:
                 i += 1
             continue
         if state == "string":
-            if char == "\\\\":
+            if char == "\\":
                 i += 2
             elif char == '"':
                 state = "code"

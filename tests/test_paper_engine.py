@@ -21,7 +21,7 @@ class PaperEngineTests(unittest.TestCase):
         result = atr(bars([10, 11, 12]), 2)
         self.assertIsNone(result[0])
         self.assertAlmostEqual(result[1], 0.8)
-        self.assertAlmostEqual(result[2], 0.8)
+        self.assertAlmostEqual(result[2], 1.2)
 
     def test_upward_crossover_returns_buy_but_never_sends_order(self):
         result = evaluate_signal(

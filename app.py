@@ -252,10 +252,13 @@ else:
                     atr_period=14,
                     cost_bps_per_side=float(cost_bps),
                 )
-                bt1, bt2, bt3 = st.columns(3)
+                bt1, bt2, bt3, bt4, bt5 = st.columns(5)
                 bt1.metric("EMA/ATR trades", str(ema_bt["trade_count"]))
                 bt2.metric("Win rate after estimated costs", f'{ema_bt["win_rate_pct"]:.1f}%')
-                bt3.metric("Sum of trade returns", f'{ema_bt["net_return_sum_pct"]:.2f}%')
+                bt3.metric("Profit factor", "∞" if ema_bt["profit_factor"] == float("inf") else f'{ema_bt["profit_factor"]:.2f}')
+                bt4.metric("Max trade-sequence drawdown", f'{ema_bt["max_drawdown_pct"]:.2f}%')
+                bt5.metric("Compounded trade return*", f'{ema_bt["compounded_return_pct"]:.2f}%')
+                st.caption(f'* Simplified sequential trade-equity estimate; summed trade returns: {ema_bt["net_return_sum_pct"]:.2f}%. Not a broker-account equity curve.')
                 st.caption(
                     f'Mode: {ema_bt["mode"]} · Order sent: {ema_bt["order_sent"]} · '
                     f'Estimated cost: {ema_bt["cost_bps_per_side"]:.2f} bps per side.'

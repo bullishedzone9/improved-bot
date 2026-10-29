@@ -6,6 +6,7 @@ import streamlit as st
 from live_quotes import fetch_quote_payload, validate_quote
 from paper_engine import evaluate_signal
 from ema_atr_backtest import backtest_ema_atr
+from market_data import load_historical_upload
 
 st.set_page_config(
     page_title="ARC_SILK | Forex Intelligence",
@@ -85,8 +86,8 @@ except Exception as exc:
     st.info("No unverified or simulated fallback price is displayed. Historical analysis remains available.")
 
 st.markdown("### Historical price analysis")
-st.write("Upload a CSV containing a **close** column. Optional columns: **date/time**, **open**, **high**, **low**, and **volume**. Rows should be in chronological order.")
-uploaded = st.file_uploader("Historical price data (CSV)", type=["csv"])
+st.write("Upload historical OHLC candles as CSV, or a gzip-compressed JSON candle file (.json.gz). CSV columns should include **open**, **high**, **low**, **close** and preferably **date/time**. Rows should be in chronological order.")
+uploaded = st.file_uploader("Historical price data (CSV or .json.gz)", type=["csv", "gz", "json"])
 use_demo = st.checkbox("Use built-in simulated demo data (no download needed)", value=False)
 
 if uploaded is None and not use_demo:
@@ -113,7 +114,7 @@ else:
             df = pd.DataFrame(demo_rows)
             st.info("Simulated demo prices are for interface testing only; they are not real market data.")
         else:
-            df = pd.read_csv(uploaded)
+            df = load_historical_upload(uploaded.name, uploaded.getvalue())
         df.columns = [str(col).strip().lower() for col in df.columns]
         if "close" not in df.columns:
             st.error("CSV is missing the required 'close' column.")

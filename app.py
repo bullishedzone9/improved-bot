@@ -284,6 +284,55 @@ else:
         else:
             st.info("EMA/ATR backtesting requires valid open, high, low, and close columns.")
 
+
+        st.markdown("#### Chronological out-of-sample validation")
+        st.caption("Fixed EMA/ATR parameters: earlier candles are training data and later candles are held out. This baseline split is not a rolling walk-forward simulation. No orders are sent.")
+        if all(col in df.columns for col in ["open", "high", "low", "close"]):
+            try:
+                from walk_forward import evaluate_chronological_split
+                from strategy_gates import evaluate_strategy_gates
+
+                wf = evaluate_chronological_split(
+                    df[["open", "high", "low", "close"]].to_dict("records"),
+                    train_fraction=0.70,
+                    fast_period=int(fast_window),
+                    slow_period=int(slow_window),
+                    atr_period=14,
+                    cost_bps_per_side=float(cost_bps),
+                )
+                train_metrics = wf["train"]
+                oos = wf["out_of_sample"]
+                st.write("Training candles: {:,} | Held-out candles: {:,}".format(train_metrics["bars"], oos["bars"]))
+                cols = st.columns(5)
+                cols[0].metric("OOS trades", str(oos["trade_count"]))
+                cols[1].metric("OOS win rate", "{:.1f}%".format(oos["win_rate_pct"]))
+                cols[2].metric("OOS profit factor", "infinity" if oos["profit_factor"] == float("inf") else "{:.2f}".format(oos["profit_factor"]))
+                cols[3].metric("OOS max drawdown", "{:.2f}%".format(oos["max_drawdown_pct"]))
+                cols[4].metric("OOS compounded return", "{:.2f}%".format(oos["compounded_return_pct"]))
+                gate = evaluate_strategy_gates(
+                    profit_factor=oos["profit_factor"] if math.isfinite(oos["profit_factor"]) else None,
+                    max_drawdown_pct=oos["max_drawdown_pct"],
+                    out_of_sample_return_pct=oos["compounded_return_pct"],
+                    risk_per_trade_pct=float(risk_pct),
+                    daily_loss_limit_pct=2.0,
+                )
+                if gate["passed"]:
+                    st.success("Research quality gate: PASS. This is not a live-trading authorization.")
+                else:
+                    st.error("Research quality gate: FAIL. Do not accept this configuration for trading use.")
+                for check in gate["checks"]:
+                    status = "PASS" if check["passed"] else "FAIL"
+                    st.write("- {} - {}: {} (required {})".format(status, check["name"], check["value"], check["requirement"]))
+                st.caption("Provisional thresholds: profit factor > 1.20, max drawdown <= 10%, held-out return after estimated costs > 0%, risk setting <= 0.5%, assumed daily-loss stop <= 2%. The 2% stop is a research assumption, not a dashboard-enforced account control.")
+                with st.expander("Out-of-sample method notes"):
+                    for caveat in wf["caveats"]:
+                        st.write("- " + caveat)
+                    st.write("Mode: {} | Order sent: {} | Execution allowed: {}".format(wf["mode"], wf["order_sent"], wf["execution_allowed"]))
+            except (ValueError, TypeError, KeyError) as exc:
+                st.warning("Out-of-sample validation unavailable: {}".format(exc))
+        else:
+            st.info("Out-of-sample validation requires valid OHLC candles.")
+
         df["fast_ma"] = df["close"].rolling(int(fast_window)).mean()
         df["slow_ma"] = df["close"].rolling(int(slow_window)).mean()
         df["period_return_pct"] = df["close"].pct_change() * 100

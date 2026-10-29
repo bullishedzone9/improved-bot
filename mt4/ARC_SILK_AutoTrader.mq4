@@ -207,8 +207,16 @@ bool DailyLossLimitReached()
    string key = DailyEquityKey();
    if(!GlobalVariableCheck(key))
    {
-      Print("ARC_SILK: daily equity baseline missing; fail closed.");
-      return(true);
+      // First tick after the broker-server date changes: establish a fresh
+      // account-wide baseline for the new day. If it cannot be stored, fail closed.
+      ResetLastError();
+      if(!GlobalVariableSet(key, AccountEquity()))
+      {
+         Print("ARC_SILK: could not establish new daily equity baseline; fail closed. error=", GetLastError());
+         return(true);
+      }
+      Print("ARC_SILK: new daily equity baseline established for ", TimeToString(TimeCurrent(), TIME_DATE));
+      return(false);
    }
 
    double baseline = GlobalVariableGet(key);

@@ -10,12 +10,28 @@ import pandas as pd
 
 
 def load_historical_upload(filename: str, payload: bytes) -> pd.DataFrame:
-    """Load a CSV or gzip-compressed JSON OHLC file into normalized columns.
+    """Load CSV, gzip JSON, or Parquet OHLC files into normalized columns.
 
     Supports EV Trading Labs-style JSON rows: ts (Unix seconds), o, h, l, c,
-    and optional v. The parser does not download data or connect to a broker.
+    and optional v. Also normalizes common Parquet OHLCV column names.
+    The parser does not download data or connect to a broker.
     """
     name = filename.lower()
+    if name.endswith(".parquet") or name.endswith(".pq"):
+        try:
+            frame = pd.read_parquet(BytesIO(payload))
+        except (ImportError, ValueError, OSError) as exc:
+            raise ValueError("Could not read this Parquet file; ensure it is a valid download.") from exc
+        frame.columns = [str(col).strip().lower() for col in frame.columns]
+        aliases = {
+            "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume",
+            "time": "date", "timestamp": "date", "timestamp_ms": "date",
+        }
+        frame = frame.rename(columns={old: new for old, new in aliases.items() if old in frame.columns and new not in frame.columns})
+        if "timestamp_ms" in frame.columns and "date" not in frame.columns:
+            frame["date"] = pd.to_datetime(frame["timestamp_ms"], unit="ms", utc=True, errors="coerce")
+        return frame
+
     if name.endswith(".json.gz") or name.endswith(".gz"):
         try:
             raw = gzip.decompress(payload)

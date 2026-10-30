@@ -62,7 +62,6 @@ def resample_complete_m15(m1: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         raise ValueError("M1 timestamps must be unique and chronological")
     # A count of 15 alone is insufficient if timestamps are offset; require every
     # exact minute boundary within each UTC quarter-hour bucket.
-    minute_offsets = data.index.minute % 15
     second_offsets = data.index.second
     if (second_offsets != 0).any():
         raise ValueError("M1 timestamps must be aligned to whole minutes")

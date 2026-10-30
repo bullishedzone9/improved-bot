@@ -30,7 +30,7 @@ jobs:
           pip install -r requirements.txt
           pip install -r bridge_service/requirements-dev.txt
       - name: Compile all application, agent, and bridge Python source
-        run: python -m compileall -q app.py backtest.py live_quotes.py mt4_bridge_validation.py bridge_service messaging on_demand_agent tests
+        run: python -m compileall -q app.py backtest.py walk_forward.py research_data.py run_research.py live_quotes.py mt4_bridge_validation.py bridge_service messaging on_demand_agent tests
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: MT4 EA safety static checks (not a compiler)

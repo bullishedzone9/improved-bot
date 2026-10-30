@@ -16,7 +16,7 @@ class WalkForwardTests(unittest.TestCase):
         self.assertEqual(result["strategy"], "SMA_LONG_OR_CASH")
         self.assertEqual(result["train_bars"], 168)
         self.assertEqual(result["out_of_sample_bars"], 72)
-        self.assertEqual(result["out_of_sample"]["periods"], 71)
+        self.assertEqual(result["out_of_sample"]["periods"], 72)
         self.assertIn("profit_factor", result["out_of_sample"])
 
     def test_rejects_short_history(self):

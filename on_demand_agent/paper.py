@@ -47,11 +47,18 @@ def simulate_paper_trade(
     costs_r is a caller-supplied aggregate estimate of spread, commission and slippage
     expressed in initial-risk units. It is subtracted from gross R, not inferred.
     """
-    if direction not in {"BUY", "SELL"}:
+    if not isinstance(direction, str) or direction not in {"BUY", "SELL"}:
         return _rejected("INVALID_DIRECTION")
+    try:
+        stop_price, target_price, starting_equity, risk_percent, daily_loss_percent, daily_loss_limit_percent, costs_r = (
+            float(value) for value in (stop_price, target_price, starting_equity, risk_percent,
+                                       daily_loss_percent, daily_loss_limit_percent, costs_r)
+        )
+    except (TypeError, ValueError, OverflowError):
+        return _rejected("NON_NUMERIC_INPUT")
     values = (stop_price, target_price, starting_equity, risk_percent,
               daily_loss_percent, daily_loss_limit_percent, costs_r)
-    if not all(isfinite(float(v)) for v in values):
+    if not all(isfinite(value) for value in values):
         return _rejected("NON_FINITE_INPUT")
     if starting_equity <= 0 or not 0 < risk_percent <= 0.25:
         return _rejected("INVALID_EQUITY_OR_RISK")

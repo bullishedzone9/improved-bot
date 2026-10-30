@@ -2,7 +2,7 @@ name: Python app checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/roboforex-mt4-demo-validation]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -29,8 +29,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r bridge_service/requirements-dev.txt
-      - name: Compile all application and bridge Python source
-        run: python -m compileall -q app.py backtest.py live_quotes.py mt4_bridge_validation.py bridge_service messaging tests
+      - name: Compile all application, agent, and bridge Python source
+        run: python -m compileall -q app.py backtest.py live_quotes.py mt4_bridge_validation.py bridge_service messaging on_demand_agent tests
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: MT4 EA safety static checks (not a compiler)

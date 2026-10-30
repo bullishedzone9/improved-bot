@@ -75,6 +75,25 @@ class PaperSimulationTests(unittest.TestCase):
         result = self.simulate(future_candles=[])
         self.assertEqual(result.reason, "NO_FUTURE_CANDLES")
 
+    def test_non_numeric_input_fails_closed(self):
+        result = self.simulate(starting_equity="not-a-number")
+        self.assertEqual(result.status, "REJECTED")
+        self.assertEqual(result.reason, "NON_NUMERIC_INPUT")
+
+    def test_non_finite_input_fails_closed(self):
+        result = self.simulate(costs_r=float("nan"))
+        self.assertEqual(result.status, "REJECTED")
+        self.assertEqual(result.reason, "NON_FINITE_INPUT")
+
+    def test_numeric_strings_are_normalized(self):
+        result = self.simulate(starting_equity="10000", stop_price="99", target_price="102")
+        self.assertEqual(result.status, "SIMULATED")
+
+    def test_invalid_direction_type_fails_closed(self):
+        result = self.simulate(direction=["BUY"])
+        self.assertEqual(result.status, "REJECTED")
+        self.assertEqual(result.reason, "INVALID_DIRECTION")
+
 
 if __name__ == "__main__":
     unittest.main()

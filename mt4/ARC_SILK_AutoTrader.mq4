@@ -139,7 +139,7 @@ int CountOpenPositionsByMagic()
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderMagicNumber() != MagicNumber)
+      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
          continue;
       if(OrderType() == OP_BUY || OrderType() == OP_SELL)
          count++;
@@ -154,8 +154,14 @@ bool DailyLossLimitReached()
    string key = DailyEquityKey();
    if(!GlobalVariableCheck(key))
    {
-      Print("ARC_SILK: daily equity baseline missing; fail closed.");
-      return(true);
+      // Start a fresh account-wide baseline on the broker server calendar day.
+      // Existing keys remain intact, so a terminal restart cannot reset today's baseline.
+      if(!GlobalVariableSet(key, AccountEquity()))
+      {
+         Print("ARC_SILK: could not create daily equity baseline; fail closed.");
+         return(true);
+      }
+      Print("ARC_SILK: new server-day equity baseline established.");
    }
 
    double baseline = GlobalVariableGet(key);

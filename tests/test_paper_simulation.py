@@ -42,7 +42,8 @@ class PaperSimulationTests(unittest.TestCase):
 
     def test_gap_through_stop_uses_worse_open_fill(self):
         result = self.simulate(future_candles=[
-            {"open": 98.0, "high": 99.0, "low": 97.0, "close": 98.5}
+            {"open": 100.0, "high": 100.5, "low": 99.5, "close": 100.0},
+            {"open": 98.0, "high": 99.0, "low": 97.0, "close": 98.5},
         ])
         self.assertEqual(result.exit_reason, "STOP_GAP")
         self.assertAlmostEqual(result.exit_price, 98.0)

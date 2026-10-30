@@ -23,6 +23,8 @@ def load_histdata_m1(path: str | Path) -> tuple[pd.DataFrame, dict]:
                            format="%Y%m%d %H%M%S", errors="coerce")
     if naive.isna().any():
         raise ValueError("Invalid HistData timestamp; expected YYYYMMDD HHMMSS")
+    if (naive.dt.second != 0).any():
+        raise ValueError("HistData M1 timestamps must be aligned to whole minutes (seconds=00)")
     if naive.duplicated().any():
         raise ValueError("Duplicate HistData minute timestamps")
     if not naive.is_monotonic_increasing:
@@ -58,6 +60,12 @@ def resample_complete_m15(m1: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     data = m1.set_index("date").sort_index()
     if data.index.has_duplicates or not data.index.is_monotonic_increasing:
         raise ValueError("M1 timestamps must be unique and chronological")
+    # A count of 15 alone is insufficient if timestamps are offset; require every
+    # exact minute boundary within each UTC quarter-hour bucket.
+    minute_offsets = data.index.minute % 15
+    second_offsets = data.index.second
+    if (second_offsets != 0).any():
+        raise ValueError("M1 timestamps must be aligned to whole minutes")
     grouped = data.resample("15min", label="left", closed="left")
     result = grouped.agg(
         open=("open", "first"), high=("high", "max"), low=("low", "min"),

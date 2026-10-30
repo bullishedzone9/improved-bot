@@ -16,7 +16,7 @@ class HistDataImportTests(unittest.TestCase):
         rows = []
         # 15 M1 bars from 00:00 EST become 05:00 UTC.
         for minute in range(15):
-            rows.append(f"20240101 {minute:02d}00;1.1;1.2;1.0;1.1;0")
+            rows.append(f"20240101 {minute:02d}0000;1.1;1.2;1.0;1.1;0")
         path = self.make_csv("\n".join(rows))
         try:
             m1, meta = load_histdata_m1(path)
@@ -30,7 +30,7 @@ class HistDataImportTests(unittest.TestCase):
 
     def test_drops_incomplete_m15_buckets(self):
         rows = "\n".join(
-            f"20240101 {minute:02d}00;1.1;1.2;1.0;1.1;0" for minute in range(14)
+            f"20240101 {minute:02d}0000;1.1;1.2;1.0;1.1;0" for minute in range(14)
         )
         path = self.make_csv(rows)
         try:

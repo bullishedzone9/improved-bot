@@ -12,7 +12,7 @@ from typing import Literal
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from on_demand_agent.engine import ScreeningConfig, ScreeningResult, screen_market
+from on_demand_agent.engine import ScreeningConfig, screen_market
 from messaging.telegram import TelegramConfigError, TelegramDeliveryError, send_telegram_alert
 
 app = FastAPI(

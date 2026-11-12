@@ -28,7 +28,7 @@ class _FakeResponse:
 class TelegramAlertTests(unittest.TestCase):
     def setUp(self):
         self.env = patch.dict(os.environ, {
-            "ARC_SILK_TELEGRAM_BOT_TOKEN": "1234567890:" + "a" *  thirty_chars(),
+            "ARC_SILK_TELEGRAM_BOT_TOKEN": "1234567890:" + "a" * 30,
             "ARC_SILK_TELEGRAM_CHAT_ID": "-1001234567890",
         }, clear=False)
         self.env.start()
@@ -41,8 +41,9 @@ class TelegramAlertTests(unittest.TestCase):
         self.assertEqual(result, "42")
         request = urlopen.call_args.args[0]
         self.assertEqual(request.method, "POST")
-        self.assertNotIn("1234567890:", request.full_url.split("/sendMessage")[0])
+        self.assertTrue(request.full_url.endswith("/sendMessage"))
         payload = json.loads(request.data.decode("utf-8"))
+        self.assertNotIn("1234567890:", request.data.decode("utf-8"))
         self.assertEqual(payload["chat_id"], "-1001234567890")
         self.assertEqual(payload["text"], "EURUSD BUY | score 84 | RR 1:2")
         self.assertTrue(payload["disable_web_page_preview"])
@@ -80,10 +81,6 @@ class TelegramAlertTests(unittest.TestCase):
         with self.assertRaises(TelegramDeliveryError) as caught:
             send_telegram_alert("test")
         self.assertNotIn("secret details", str(caught.exception))
-
-
-def thirty_chars():
-    return "b" * 30
 
 
 if __name__ == "__main__":

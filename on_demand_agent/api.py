@@ -98,12 +98,12 @@ def screen(request: ScreenRequest, authorization: str | None = Header(default=No
     notification = {"status": "NOT_REQUESTED"}
     if request.notify_telegram and result.status == "CANDIDATE":
         message = (
-            f"ARC_SILK FOREX SIGNAL CANDIDATE\\n"
-            f"{request.symbol} · {request.timeframe} · {result.direction}\\n"
-            f"Entry reference: {result.entry_reference}\\n"
-            f"Stop reference: {result.stop_reference}\\n"
-            f"Target reference: {result.target_reference}\\n"
-            f"Risk setting: {result.risk_percent}%\\n"
+            f"ARC_SILK FOREX SIGNAL CANDIDATE\n"
+            f"{request.symbol} · {request.timeframe} · {result.direction}\n"
+            f"Entry reference: {result.entry_reference}\n"
+            f"Stop reference: {result.stop_reference}\n"
+            f"Target reference: {result.target_reference}\n"
+            f"Risk setting: {result.risk_percent}%\n"
             f"Status: screening candidate only — verify independently; no order placed."
         )
         try:

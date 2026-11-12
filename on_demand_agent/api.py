@@ -12,7 +12,8 @@ from typing import Literal
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from on_demand_agent.engine import ScreeningConfig, screen_market
+from on_demand_agent.engine import ScreeningConfig, ScreeningResult, screen_market
+from messaging.telegram import TelegramConfigError, TelegramDeliveryError, send_telegram_alert
 
 app = FastAPI(
     title="ARC_SILK On-Demand Signal Screening API",
@@ -42,6 +43,7 @@ class ScreenRequest(BaseModel):
     spread_points: float = Field(ge=0)
     quote_time: datetime
     daily_loss_percent: float = Field(ge=-100, le=100)
+    notify_telegram: bool = False
 
 
 def _require_api_token(authorization: str | None) -> None:
@@ -93,10 +95,28 @@ def screen(request: ScreenRequest, authorization: str | None = Header(default=No
         daily_loss_percent=request.daily_loss_percent,
         config=ScreeningConfig(),
     )
+    notification = {"status": "NOT_REQUESTED"}
+    if request.notify_telegram and result.status == "CANDIDATE":
+        message = (
+            f"ARC_SILK FOREX SIGNAL CANDIDATE\\n"
+            f"{request.symbol} · {request.timeframe} · {result.direction}\\n"
+            f"Entry reference: {result.entry_reference}\\n"
+            f"Stop reference: {result.stop_reference}\\n"
+            f"Target reference: {result.target_reference}\\n"
+            f"Risk setting: {result.risk_percent}%\\n"
+            f"Status: screening candidate only — verify independently; no order placed."
+        )
+        try:
+            message_id = send_telegram_alert(message)
+            notification = {"status": "ACCEPTED_BY_TELEGRAM", "message_id": message_id}
+        except (TelegramConfigError, TelegramDeliveryError):
+            notification = {"status": "NOT_SENT", "reason": "TELEGRAM_NOT_CONFIGURED_OR_DELIVERY_UNCONFIRMED"}
+
     return {
         "symbol": request.symbol,
         "timeframe": request.timeframe,
         "evaluated_at": now.isoformat(),
         "result": result.to_dict(),
+        "notification": notification,
         "execution": "NOT_AVAILABLE",
     }

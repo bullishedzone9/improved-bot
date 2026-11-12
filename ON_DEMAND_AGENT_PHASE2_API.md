@@ -38,3 +38,9 @@ The API is a screening interface only. It is not connected to a live market feed
 5. Implement a separate demo-only execution adapter only after the broker route is verified.
 
 No live trading. No martingale/grid. No credential scraping or browser automation.
+
+## Optional Telegram notifications
+
+The `POST /v1/screen` request accepts `notify_telegram` (default: `false`). When explicitly set to `true`, the API sends a Telegram message only if the screening result is `CANDIDATE`. A `NO_TRADE` result never triggers a message.
+
+Configure `ARC_SILK_TELEGRAM_BOT_TOKEN` and `ARC_SILK_TELEGRAM_CHAT_ID` as server-side secrets. Never place either value in source control or a request body. The response reports `ACCEPTED_BY_TELEGRAM`, `NOT_SENT`, or `NOT_REQUESTED`; acceptance is not proof that a recipient viewed the message. Telegram alerts are informational candidate notices, not trade instructions or order execution.
